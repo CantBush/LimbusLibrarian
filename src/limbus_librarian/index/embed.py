@@ -19,19 +19,29 @@ def hashed_embed(texts: list[str], dims: int = 1536) -> np.ndarray:
 
 
 class Embedder:
-    def __init__(self, model: str, api_key: str = "", dims: int = 1536) -> None:
+    def __init__(
+        self,
+        model: str,
+        api_key: str = "",
+        dims: int = 1536,
+        adapter=None,
+    ) -> None:
         self.model = model
         self.api_key = api_key
         self.dims = dims
+        self._adapter = adapter
+
+    @property
+    def provider(self) -> str:
+        return "openai" if self.api_key else "hash"
 
     def embed(self, texts: list[str]) -> np.ndarray:
-        if not texts:
-            return np.zeros((0, self.dims), dtype=np.float32)
-        if self.api_key:
-            from openai import OpenAI
+        if self._adapter is None:
+            from limbus_librarian.llm import LLMAdapter
 
-            client = OpenAI(api_key=self.api_key)
-            response = client.embeddings.create(model=self.model, input=texts)
-            vecs = [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
-            return np.array(vecs, dtype=np.float32)
-        return hashed_embed(texts, self.dims)
+            self._adapter = LLMAdapter(
+                api_key=self.api_key,
+                embedding_model=self.model,
+                dims=self.dims,
+            )
+        return self._adapter.embed(texts)

@@ -10,14 +10,23 @@ from limbus_librarian.models import Chunk, RetrievalHit
 class NumpyDenseRetriever:
     name = "dense"
 
-    def __init__(self, chunks: list[Chunk], embedder: Embedder) -> None:
+    def __init__(
+        self,
+        chunks: list[Chunk],
+        embedder: Embedder,
+        matrix: np.ndarray | None = None,
+    ) -> None:
         self.chunks = chunks
         self.embedder = embedder
-        self.matrix = (
-            embedder.embed([c.embed_text for c in chunks])
-            if chunks
-            else np.zeros((0, embedder.dims), dtype=np.float32)
-        )
+        self.matrix = matrix
+        if self.matrix is None:
+            self.matrix = (
+                embedder.embed([c.embed_text for c in chunks])
+                if chunks
+                else np.zeros((0, embedder.dims), dtype=np.float32)
+            )
+        if len(self.matrix) != len(chunks):
+            raise ValueError("Dense matrix row count does not match chunks")
 
     def retrieve(self, query: str, k: int, filters: dict | None = None) -> list[RetrievalHit]:
         if not self.chunks or k <= 0:

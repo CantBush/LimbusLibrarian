@@ -26,9 +26,24 @@ def main(argv: list[str] | None = None) -> None:
     eval_p = sub.add_parser("eval", help="Retrieval evaluation on gold set")
     eval_p.add_argument("--config", default="hybrid")
     eval_p.add_argument("--k", type=int, default=8)
+    serve_p = sub.add_parser("serve", help="Serve the API and local dashboard")
+    serve_p.add_argument("--host", default="127.0.0.1")
+    serve_p.add_argument("--port", type=int, default=8000)
+    serve_p.add_argument("--reload", action="store_true")
 
     args = parser.parse_args(argv)
     settings = get_settings()
+
+    if args.cmd == "serve":
+        import uvicorn
+
+        uvicorn.run(
+            "limbus_librarian.api.app:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+        )
+        return
 
     if args.cmd == "ingest-fixtures":
         bootstrap_from_fixtures(settings)

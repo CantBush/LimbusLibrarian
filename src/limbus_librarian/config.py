@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     generate_model: str = "gpt-5.6-terra"
     utility_model: str = "gpt-5.6-luna"
-    default_config: str = "hybrid_rerank_refine"
+    default_config: str = "hybrid"
     cors_origins: str = "http://localhost:5173"
     user_agent: str = "LimbusLibrarian/0.1 (fan research tool; contact: local-dev)"
     openai_api_key: str = Field(
@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     @property
     def bm25_path(self) -> Path:
         return Path(self.data_dir) / "indexes" / "bm25"
+
+    @property
+    def dense_path(self) -> Path:
+        return Path(self.data_dir) / "indexes" / "dense.npz"
+
+    @property
+    def dense_manifest_path(self) -> Path:
+        return Path(self.data_dir) / "indexes" / "manifest.json"
 
     def cors_origin_list(self) -> list[str]:
         return [part.strip() for part in self.cors_origins.split(",") if part.strip()]

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Limbus Librarian</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="wordmark"><span class="mark">L</span><div><strong>LIMBUS<br>LIBRARIAN</strong><small>LORE RESEARCH</small></div></div>
+      <button id="new-chat" class="new-chat">＋ <span>New Chat</span></button>
+      <p class="group-label">Today</p>
+      <nav id="history" class="history">
+        <button class="active">Why did Dongrang abandon the League of Nine?</button>
+        <button>What is the Smoke War?</button>
+        <button>Explain the Mirror in Limbus Company</button>
+        <button>Who is the Head?</button>
+      </nav>
+      <div class="local-card">
+        <span class="status-dot"></span>
+        <div><strong>Local lore index</strong><small id="llm-status">Checking LLM…</small></div>
+      </div>
+      <p class="fan-note">Unofficial fan project.<br>Not affiliated with Project Moon.</p>
+    </aside>
+
+    <main>
+      <header>
+        <div class="mobile-brand">Limbus Librarian</div>
+        <nav>
+          <a class="active">Chat</a>
+          <a data-stub>Explore</a><a data-stub>Characters</a><a data-stub>Glossary</a><a data-stub>About</a>
+        </nav>
+      </header>
+      <div class="content">
+        <section class="chat-column">
+          <div id="conversation">
+            <article class="user-message">
+              <span class="avatar user-avatar">?</span>
+              <p>Why did Dongrang abandon the League of Nine?</p>
+            </article>
+            <article class="answer-card">
+              <div class="assistant-title"><span class="avatar librarian-avatar">L</span><strong>Limbus Librarian</strong></div>
+              <div id="answer-text" class="answer-text">Ask a question to search the local lore corpus. Answers are grounded in retrieved sources and include citations.</div>
+              <div id="citation-chips" class="chips"></div>
+              <div class="answer-actions"><button id="copy-answer" title="Copy answer">Copy</button></div>
+            </article>
+          </div>
+
+          <form id="ask-form" class="composer">
+            <div class="input-row">
+              <textarea id="query" rows="1" maxlength="2000" placeholder="Ask anything about Limbus lore…" required></textarea>
+              <button class="send" type="submit" aria-label="Send">➤</button>
+            </div>
+            <div class="composer-options">
+              <label><input type="checkbox" checked disabled> <span>Search in all documents</span></label>
+              <select id="config" aria-label="Retrieval mode">
+                <option value="hybrid">Hybrid Search</option>
+                <option value="vector_only">Semantic Search</option>
+              </select>
+            </div>
+          </form>
+          <p id="error" class="error" role="alert"></p>
+          <section class="conversation-history">
+            <h3>Conversation History</h3>
+            <div id="history-row">No questions asked yet in this session.</div>
+          </section>
+        </section>
+
+        <aside class="right-rail">
+          <section class="panel">
+            <div class="panel-heading"><h2>Sources</h2><span id="source-count">0 found</span></div>
+            <div id="sources" class="sources empty">Sources will appear after a search.</div>
+          </section>
+          <section class="panel retrieval-panel">
+            <h2>Retrieval Visualization</h2>
+            <div class="mode-toggle">
+              <button class="active" data-mode="hybrid">Hybrid Search</button>
+              <button data-mode="vector_only">Semantic Search</button>
+            </div>
+            <div id="bars" class="bars empty">Retrieval scores will appear here.</div>
+          </section>
+          <p class="license">Corpus excerpts retain their source attribution and CC BY-SA 4.0 license.</p>
+        </aside>
+      </div>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

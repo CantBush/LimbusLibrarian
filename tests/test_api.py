@@ -24,6 +24,12 @@ def test_api_ask_health_configs(tmp_path: Path, monkeypatch):
         health = client.get("/v1/health")
         assert health.status_code == 200
         assert "not affiliated" in health.json()["disclaimer"].lower()
+        assert health.json()["llm_configured"] is False
+        ui = client.get("/")
+        assert ui.status_code == 200
+        assert "Limbus Librarian" in ui.text
+        assert "Unofficial fan project" in ui.text
+        assert "official logo" not in ui.text.lower()
         configs = client.get("/v1/configs")
         assert "hybrid" in configs.json()["configs"]
         resp = client.post(
