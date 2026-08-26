@@ -313,7 +313,10 @@ async function openDocument(docId) {
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   const question = query.value.trim();
-  if (question) ask(question);
+  if (!question) return;
+  query.value = "";
+  query.focus();
+  ask(question);
 });
 query.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
