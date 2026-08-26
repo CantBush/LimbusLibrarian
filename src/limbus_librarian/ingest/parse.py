@@ -8,7 +8,7 @@ from limbus_librarian.ingest.classify import classify_document, detect_cantos
 from limbus_librarian.models import SourceDocument
 from limbus_librarian.sources import RawPage
 
-_HEADING = re.compile(r"^(=+)\s*(.+?)\s*\1\s*$", re.M)
+_HEADING = re.compile(r"^(=+)\s*(.+?)\s*\1\s*$", re.MULTILINE)
 
 
 def parse_wikitext(wikitext: str) -> tuple[str, dict[str, str], list[str], list[str]]:
@@ -24,7 +24,7 @@ def parse_wikitext(wikitext: str) -> tuple[str, dict[str, str], list[str], list[
                 if key and val:
                     infobox[key] = val
     for link in code.filter_wikilinks():
-        target = str(link.title).split("|", 1)[0].strip()
+        target = str(link.title).split("|", 1)[0].split("#", 1)[0].strip()
         if target and not target.lower().startswith(("file:", "category:", "http")):
             entities.append(target)
     unique_entities = list(dict.fromkeys(entities))

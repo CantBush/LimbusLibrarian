@@ -1,4 +1,15 @@
 source_id: limbuscompany_wiki
+seed_categories:
+  - Characters
+  - Sinners
+  - Story
+  - Cantos
+  - Factions
+  - Abnormalities
+  - Locations
+  - Lore
+category_depth: 2
+batch_size: 50
 allowed_document_types:
   - story_transcript
   - character

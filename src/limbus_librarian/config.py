@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     )
     embedding_dims: int = 1536
     mediawiki_api: str = "https://limbuscompany.wiki.gg/api.php"
+    wiki_categories: str = (
+        "Characters,Sinners,Story,Cantos,Factions,Abnormalities,Locations,Lore"
+    )
+    wiki_category_depth: int = 2
+    wiki_batch_size: int = 50
 
     @property
     def repo_root(self) -> Path:
@@ -43,12 +48,26 @@ class Settings(BaseSettings):
         return self.repo_root / "data" / "fixtures"
 
     @property
+    def gold_dir(self) -> Path:
+        return self.repo_root / "data" / "eval" / "gold"
+
+    @property
     def gold_path(self) -> Path:
-        return self.repo_root / "data" / "eval" / "gold" / "v1.jsonl"
+        return self.gold_dir / "v1.jsonl"
+
+    def gold_path_for(self, name: str) -> Path:
+        candidate = Path(name)
+        if candidate.name != name or candidate.suffix not in {"", ".jsonl"}:
+            raise ValueError("Gold set must be a name such as 'wiki_v1'")
+        return self.gold_dir / (candidate.name if candidate.suffix else f"{candidate.name}.jsonl")
 
     @property
     def catalog_path(self) -> Path:
         return Path(self.data_dir) / "processed" / "catalog.sqlite"
+
+    @property
+    def ingest_state_path(self) -> Path:
+        return Path(self.data_dir) / "raw" / "ingest_state.json"
 
     @property
     def documents_path(self) -> Path:
@@ -72,6 +91,9 @@ class Settings(BaseSettings):
 
     def cors_origin_list(self) -> list[str]:
         return [part.strip() for part in self.cors_origins.split(",") if part.strip()]
+
+    def wiki_category_list(self) -> tuple[str, ...]:
+        return tuple(part.strip() for part in self.wiki_categories.split(",") if part.strip())
 
 
 def get_settings() -> Settings:

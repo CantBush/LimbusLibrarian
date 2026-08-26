@@ -12,12 +12,7 @@
       <div class="wordmark"><span class="mark">L</span><div><strong>LIMBUS<br>LIBRARIAN</strong><small>LORE RESEARCH</small></div></div>
       <button id="new-chat" class="new-chat">＋ <span>New Chat</span></button>
       <p class="group-label">Today</p>
-      <nav id="history" class="history">
-        <button class="active">Why did Dongrang abandon the League of Nine?</button>
-        <button>What is the Smoke War?</button>
-        <button>Explain the Mirror in Limbus Company</button>
-        <button>Who is the Head?</button>
-      </nav>
+      <nav id="history" class="history"><span class="history-empty">No saved chats yet.</span></nav>
       <div class="local-card">
         <span class="status-dot"></span>
         <div><strong>Local lore index</strong><small id="llm-status">Checking LLM…</small></div>
@@ -29,11 +24,11 @@
       <header>
         <div class="mobile-brand">Limbus Librarian</div>
         <nav>
-          <a class="active">Chat</a>
-          <a data-stub>Explore</a><a data-stub>Characters</a><a data-stub>Glossary</a><a data-stub>About</a>
+          <a class="active" data-view="chat">Chat</a>
+          <a data-view="explore">Explore</a><a data-view="characters">Characters</a><a data-view="glossary">Glossary</a><a data-view="about">About</a>
         </nav>
       </header>
-      <div class="content">
+      <div id="chat-view" class="content view-panel">
         <section class="chat-column">
           <div id="conversation">
             <article class="user-message">
@@ -54,12 +49,32 @@
               <button class="send" type="submit" aria-label="Send">➤</button>
             </div>
             <div class="composer-options">
-              <label><input type="checkbox" checked disabled> <span>Search in all documents</span></label>
+              <label for="max-canto">Spoilers through
+                <select id="max-canto">
+                  <option value="">all cantos</option>
+                  <option value="1">Canto I</option><option value="2">Canto II</option>
+                  <option value="3">Canto III</option><option value="4">Canto IV</option>
+                  <option value="5">Canto V</option><option value="6">Canto VI</option>
+                  <option value="7">Canto VII</option>
+                </select>
+              </label>
               <select id="config" aria-label="Retrieval mode">
                 <option value="hybrid">Hybrid Search</option>
+                <option value="hybrid_graph">Hybrid + Graph</option>
                 <option value="vector_only">Semantic Search</option>
               </select>
             </div>
+            <fieldset class="type-filters">
+              <legend>Search types</legend>
+              <label><input type="checkbox" value="character"> Characters</label>
+              <label><input type="checkbox" value="sinner"> Sinners</label>
+              <label><input type="checkbox" value="story_transcript"> Story</label>
+              <label><input type="checkbox" value="world"> World</label>
+              <label><input type="checkbox" value="faction"> Factions</label>
+              <label><input type="checkbox" value="abnormality"> Abnormalities</label>
+              <label><input type="checkbox" value="location"> Locations</label>
+              <label><input type="checkbox" value="event"> Events</label>
+            </fieldset>
           </form>
           <p id="error" class="error" role="alert"></p>
           <section class="conversation-history">
@@ -77,13 +92,39 @@
             <h2>Retrieval Visualization</h2>
             <div class="mode-toggle">
               <button class="active" data-mode="hybrid">Hybrid Search</button>
+              <button data-mode="hybrid_graph">Hybrid + Graph</button>
               <button data-mode="vector_only">Semantic Search</button>
             </div>
             <div id="bars" class="bars empty">Retrieval scores will appear here.</div>
           </section>
-          <p class="license">Corpus excerpts retain their source attribution and CC BY-SA 4.0 license.</p>
+          <p class="license">Wiki excerpts are attributed to the
+            <a href="https://limbuscompany.wiki.gg/" target="_blank" rel="noopener">Limbus Company Wiki</a>
+            and retain the CC BY-SA 4.0 license. No images or training use.</p>
         </aside>
       </div>
+      <section id="catalog-view" class="catalog-view view-panel hidden">
+        <div class="catalog-heading">
+          <div><p class="eyebrow">Local corpus</p><h1 id="catalog-title">Explore</h1>
+          <p id="catalog-description">Browse pages indexed for retrieval.</p></div>
+          <input id="catalog-search" type="search" placeholder="Search catalog…" maxlength="200">
+        </div>
+        <div id="catalog-results" class="catalog-grid"></div>
+        <div id="catalog-pagination" class="catalog-pagination"></div>
+      </section>
+      <section id="document-view" class="catalog-view view-panel hidden">
+        <button id="document-back" class="text-button">← Back to catalog</button>
+        <article id="document-detail" class="document-detail"></article>
+      </section>
+      <section id="about-view" class="catalog-view view-panel hidden">
+        <p class="eyebrow">About</p>
+        <h1>An unofficial, source-grounded lore tool</h1>
+        <div class="about-grid">
+          <article><h2>Independent fan project</h2><p>Limbus Librarian is not affiliated with or endorsed by Project Moon.</p></article>
+          <article><h2>How retrieval works</h2><p>Your question searches a local index using keyword and semantic retrieval. The answer is generated only from the returned passages and links citations back to their pages.</p></article>
+          <article><h2>Attribution</h2><p>Wiki excerpts are adapted from the Limbus Company Wiki (wiki.gg) under CC BY-SA 4.0. No wiki images are copied and the corpus is not used for training.</p></article>
+          <article><h2>Local sessions</h2><p>Chat sessions and filters stay in this browser. Recent user questions—not assistant answers—may be sent as untrusted context to resolve follow-up questions.</p></article>
+        </div>
+      </section>
     </main>
   </div>
   <div id="toast" class="toast" role="status"></div>

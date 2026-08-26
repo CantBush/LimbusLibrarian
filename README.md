@@ -42,14 +42,15 @@ python -m limbus_librarian.cli serve --host 0.0.0.0 --port 8080
    Pages are parsed, classified (character, canto, faction, …), and filtered to a
    **lore-first** set (combat Identity/E.G.O. pages are skipped in V1).
 2. **Chunk** by section headings and store documents + chunks on disk.
-3. **Retrieve** with BM25 (keywords), dense vectors (meaning), or **hybrid RRF**
-   (both). Optional rerank, then a relevance filter.
+3. **Retrieve** with BM25 (keywords), dense vectors (meaning), or **hybrid RRF**.
+   `hybrid_graph` adds a third deterministic list from wikilink/infobox neighbors.
 4. **LangGraph** runs: analyze query → retrieve → grade → at most one query refine
    → generate → check that citation IDs actually exist in retrieved chunks.
 5. **Answer** through the CLI or FastAPI-served dashboard, with source links.
 
 Retrieval setups are YAML configs you can swap without code changes:
-`bm25_only`, `vector_only`, `hybrid`, `hybrid_rerank`, `hybrid_rerank_refine`.
+`bm25_only`, `vector_only`, `hybrid`, `hybrid_rerank`, `hybrid_rerank_refine`,
+and `hybrid_graph`.
 
 Without `OPENAI_API_KEY`, embeddings are deterministic hashed vectors and answers
 are assembled from retrieved snippets (enough for tests and local demos). With a
@@ -64,6 +65,46 @@ python -m limbus_librarian.cli ask "Who is Dongrang?"
 python -m pytest -q
 ```
 
+## Lore-first wiki ingest
+
+The optional live ingest uses MediaWiki's Action API and configured lore category
+trees; it does not crawl HTML, download images, or enumerate every wiki page.
+Requests are limited to one per second, page details are fetched in API batches,
+and 429/server failures use bounded backoff. Progress is saved to
+`data/raw/ingest_state.json`, so rerunning the command resumes an interrupted ingest.
+
+```powershell
+python -m limbus_librarian.cli ingest-wiki
+# To intentionally discard progress and start a new corpus:
+python -m limbus_librarian.cli ingest-wiki --restart
+# After a full ingest, fetch only edits since its saved watermark:
+python -m limbus_librarian.cli ingest-wiki --since
+# Or provide an explicit MediaWiki timestamp:
+python -m limbus_librarian.cli ingest-wiki --since 2026-08-01T00:00:00Z
+```
+
+The command classifies and stores lore pages, skips Identity/E.G.O. pages, chunks
+the corpus, and rebuilds BM25 plus the dense cache. If `OPENAI_API_KEY` is set,
+dense embeddings use OpenAI in batches; otherwise they use the local deterministic
+embedder. It does not perform model training.
+
+Incremental ingest uses MediaWiki `recentchanges`, compares revision IDs, rechunks
+only affected pages, removes stale/deleted chunks, and reuses dense vectors for
+unchanged chunk IDs. BM25 is rewritten from the resulting local chunk set. The
+same pass deterministically rebuilds SQLite `entities` and `edges` from parsed
+wikilinks and selected infobox relationships; it does not use an LLM extractor.
+
+After ingest, restart `limbus serve` or reload indexes in the running process:
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/v1/reload
+```
+
+wiki.gg's Terms of Service and robots policy restrict scraper behavior. Review and
+honor the current policies before ingesting; this deliberately slow local fan-tool
+path uses the Action API rather than an HTML scraper. Fixtures remain the only
+corpus used by tests and CI, and tests never contact wiki.gg.
+
 `docker compose up --build` is an optional API-only container path. Qdrant and
 the legacy Vite experiment under `apps/web` are not used by the prototype.
 
@@ -74,9 +115,21 @@ the legacy Vite experiment under `apps/web` are not used by the prototype.
 | GET | `/v1/health` | Liveness, key status + unofficial disclaimer |
 | GET | `/v1/configs` | Retrieval config ids |
 | POST | `/v1/ask` | `{ "query", "config_id?", "debug?" }` |
+| POST | `/v1/reload` | Reload chunks and retrieval indexes from disk |
 | GET | `/v1/sources/{chunk_id}` | Full chunk + metadata |
+| GET | `/v1/documents/{doc_id}/related` | Deterministic graph-linked pages |
 
 ```bash
 python -m limbus_librarian.cli search "What is the League of Nine?" --config hybrid
-python -m limbus_librarian.cli eval --config hybrid
+python -m limbus_librarian.cli eval --gold wiki_v1 --config hybrid
+python -m limbus_librarian.cli eval --gold wiki_v1 --compare
 ```
+
+The comparison command evaluates `bm25_only`, `vector_only`, `hybrid`,
+`hybrid_rerank`, and `hybrid_graph`, prints a table, and writes JSON reports
+under `data/eval/runs/`.
+Gold labels may use exact `relevant_doc_ids`, stable `relevant_doc_titles`, or
+both. Title labels are resolved against the locally ingested document catalog.
+Until the first live ingest has populated that catalog, `wiki_v1` labels are
+reported as unresolved and excluded from metric averages; the evaluator never
+invents wiki page IDs. The legacy fixture set remains available as `--gold v1`.

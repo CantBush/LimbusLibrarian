@@ -105,14 +105,16 @@ class QdrantDenseRetriever:
         results = self.client.query_points(
             collection_name=self.collection,
             query=vector,
-            limit=k,
+            limit=max(k, k * 4) if filters else k,
             query_filter=q_filter,
         )
         hits: list[RetrievalHit] = []
         for rank, point in enumerate(results.points, start=1):
             chunk_id = point.payload["chunk_id"]
             chunk = self.chunks.get(chunk_id)
-            if chunk is None:
+            if chunk is None or not matches_filters(chunk, filters):
                 continue
             hits.append(chunk_to_hit(chunk, float(point.score), rank, self.name))
+            if len(hits) >= k:
+                break
         return hits

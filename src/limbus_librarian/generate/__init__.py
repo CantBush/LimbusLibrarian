@@ -30,7 +30,12 @@ def generate_answer(
     hits: list[RetrievalHit],
     model: str,
     api_key: str,
+    history: list[str] | None = None,
 ) -> str:
     from limbus_librarian.llm import LLMAdapter
 
-    return LLMAdapter(api_key=api_key, generate_model=model).generate(query, hits)
+    return LLMAdapter(api_key=api_key, generate_model=model).generate(
+        query,
+        hits,
+        history=history,
+    )

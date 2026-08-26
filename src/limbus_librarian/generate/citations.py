@@ -17,23 +17,11 @@ def validate_citations(
 ) -> tuple[str, list[Citation], bool]:
     allowed = {h.chunk_id: h for h in kept}
     ids = extract_citation_ids(answer)
-    valid = True
+    valid = all(cid in allowed for cid in ids)
     kept_ids: list[str] = []
     for cid in ids:
-        if cid not in allowed:
-            valid = False
-        elif cid not in kept_ids:
+        if cid in allowed and cid not in kept_ids:
             kept_ids.append(cid)
-    cleaned = answer
-    if not valid:
-        cleaned = CITE_RE.sub(
-            lambda m: m.group(0) if m.group(1) in allowed else "",
-            answer,
-        )
-        cleaned = re.sub(r" +", " ", cleaned).strip()
-        ids = extract_citation_ids(cleaned)
-        kept_ids = [i for i in ids if i in allowed]
-        valid = all(i in allowed for i in ids)
     citations = [
         Citation(
             chunk_id=cid,
@@ -45,6 +33,19 @@ def validate_citations(
         )
         for cid in kept_ids
     ]
+    citation_numbers = {citation.chunk_id: index for index, citation in enumerate(citations, 1)}
+    cleaned = CITE_RE.sub(
+        lambda match: (
+            f"[{citation_numbers[match.group(1)]}]"
+            if match.group(1) in citation_numbers
+            else ""
+        ),
+        answer,
+    )
+    # Keep adjacent citations compact even when the model separated tags with spaces.
+    cleaned = re.sub(r"(\[\d+\])\s+(?=\[\d+\])", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]+([,.;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
     if not citations and kept:
         # attach sources even if the model omitted tags
         for hit in kept[:5]:

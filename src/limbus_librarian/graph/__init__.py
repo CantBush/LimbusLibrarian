@@ -8,7 +8,14 @@ from limbus_librarian.generate import generate_answer
 from limbus_librarian.generate.citations import validate_citations
 from limbus_librarian.graph.heuristics import analyze_query, refine_query, relevance_score
 from limbus_librarian.index.searcher import HybridSearcher
-from limbus_librarian.models import AskAnswer, AskTrace, RetrievalConfig, RetrievalHit, TraceStep
+from limbus_librarian.models import (
+    AskAnswer,
+    AskTrace,
+    Citation,
+    RetrievalConfig,
+    RetrievalHit,
+    TraceStep,
+)
 
 
 class GraphState(TypedDict, total=False):
@@ -19,12 +26,15 @@ class GraphState(TypedDict, total=False):
     hits: list[RetrievalHit]
     kept: list[RetrievalHit]
     answer: str
+    citations: list[Citation]
     citations_ok: bool
     gen_retries: int
     refused: bool
     trace: AskTrace
     api_key: str
     generate_model: str
+    filters: dict[str, Any]
+    history: list[str]
 
 
 def build_ask_graph(searcher: HybridSearcher):
@@ -42,7 +52,11 @@ def build_ask_graph(searcher: HybridSearcher):
 
     def retrieve_node(state: GraphState) -> dict[str, Any]:
         cfg = state["config"]
-        hits = searcher.search(state["working_query"], cfg)
+        hits = searcher.search(
+            state["working_query"],
+            cfg,
+            filters=state.get("filters"),
+        )
         trace = state["trace"]
         hop = state.get("hops", 0)
         trace.hits = hits
@@ -54,6 +68,7 @@ def build_ask_graph(searcher: HybridSearcher):
                     "hop": hop,
                     "n_hits": len(hits),
                     "chunk_ids": [h.chunk_id for h in hits],
+                    "filters": state.get("filters") or {},
                 },
             )
         )
@@ -127,16 +142,24 @@ def build_ask_graph(searcher: HybridSearcher):
             state.get("kept") or [],
             state.get("generate_model") or "gpt-5.6-terra",
             state.get("api_key") or "",
+            history=state.get("history") or [],
         )
-        cleaned, _citations, ok = validate_citations(text, state.get("kept") or [])
+        cleaned, citations, ok = validate_citations(text, state.get("kept") or [])
         trace = state["trace"]
         retries = state.get("gen_retries", 0)
         if not ok and retries < 1:
             trace.steps.append(TraceStep(name="citation_retry", detail={"ok": False}))
-            return {"answer": cleaned, "citations_ok": False, "gen_retries": retries + 1, "trace": trace}
+            return {
+                "answer": cleaned,
+                "citations": citations,
+                "citations_ok": False,
+                "gen_retries": retries + 1,
+                "trace": trace,
+            }
         trace.steps.append(TraceStep(name="generate", detail={"ok": ok}))
         return {
             "answer": cleaned,
+            "citations": citations,
             "citations_ok": ok,
             "refused": False,
             "trace": trace,
@@ -181,6 +204,8 @@ def run_ask(
     api_key: str = "",
     generate_model: str = "gpt-5.6-terra",
     debug: bool = False,
+    filters: dict[str, Any] | None = None,
+    history: list[str] | None = None,
 ) -> AskAnswer:
     compiled = build_ask_graph(searcher)
     result = compiled.invoke(
@@ -191,12 +216,16 @@ def run_ask(
             "gen_retries": 0,
             "api_key": api_key,
             "generate_model": generate_model,
+            "filters": filters or {},
+            "history": (history or [])[-4:],
             "trace": AskTrace(query=query, config_id=config.id),
         }
     )
     kept = result.get("kept") or []
     answer = result.get("answer") or ""
-    _, citations, _ = validate_citations(answer, kept)
+    citations = result.get("citations") or []
+    if not citations and kept:
+        _, citations, _ = validate_citations(answer, kept)
     return AskAnswer(
         answer=answer,
         citations=citations,

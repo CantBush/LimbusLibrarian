@@ -44,4 +44,12 @@ class Embedder:
                 embedding_model=self.model,
                 dims=self.dims,
             )
-        return self._adapter.embed(texts)
+        if not texts:
+            return np.zeros((0, self.dims), dtype=np.float32)
+        if self.provider != "openai":
+            return self._adapter.embed(texts)
+        batches = [
+            self._adapter.embed(texts[start : start + 128])
+            for start in range(0, len(texts), 128)
+        ]
+        return np.concatenate(batches, axis=0)

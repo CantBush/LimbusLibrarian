@@ -136,12 +136,15 @@ class RetrievalConfig(BaseModel):
     id: str
     k_dense: int = 40
     k_bm25: int = 40
+    k_graph: int = 16
     k_fused: int = 50
     k_final: int = 8
     use_dense: bool = True
     use_bm25: bool = True
+    use_graph: bool = False
     use_rerank: bool = False
     use_refine: bool = False
+    graph_max_neighbors: int = 8
     rrf_k: int = 60
     min_kept: int = 2
     relevance_threshold: float = 0.15
