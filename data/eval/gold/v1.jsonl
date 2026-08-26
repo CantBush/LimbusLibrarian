@@ -1,0 +1,15 @@
+{"id":"q01","question":"Who is Dongrang?","question_type":"who","relevant_doc_ids":["wiki.gg:limbuscompany_en:101"],"expected_answer_points":["K Corp researcher","former League of Nine member"]}
+{"id":"q02","question":"Who is Yi Sang?","question_type":"who","relevant_doc_ids":["wiki.gg:limbuscompany_en:102"],"expected_answer_points":["Sinner #1","League of Nine"]}
+{"id":"q03","question":"What happened during Canto IV?","question_type":"event","relevant_doc_ids":["wiki.gg:limbuscompany_en:103"],"expected_answer_points":["Yi Sang and Dongrang history","K Corp"]}
+{"id":"q04","question":"What is the League of Nine?","question_type":"what","relevant_doc_ids":["wiki.gg:limbuscompany_en:104"],"expected_answer_points":["gathering of inventors","included Yi Sang and Dongrang"]}
+{"id":"q05","question":"What is the Mirror?","question_type":"what","relevant_doc_ids":["wiki.gg:limbuscompany_en:105"],"expected_answer_points":["technology associated with Yi Sang","Identities"]}
+{"id":"q06","question":"How are Yi Sang and Dongrang connected?","question_type":"relationship","relevant_doc_ids":["wiki.gg:limbuscompany_en:101","wiki.gg:limbuscompany_en:102","wiki.gg:limbuscompany_en:104"],"expected_answer_points":["League of Nine collaborators"]}
+{"id":"q07","question":"Where in the story is Dongrang's history with Yi Sang established?","question_type":"where_established","relevant_doc_ids":["wiki.gg:limbuscompany_en:103","wiki.gg:limbuscompany_en:101"],"expected_answer_points":["Canto IV"]}
+{"id":"q08","question":"Explain the relationship between Yi Sang and the League of Nine.","question_type":"relationship","relevant_doc_ids":["wiki.gg:limbuscompany_en:102","wiki.gg:limbuscompany_en:104"],"expected_answer_points":["Yi Sang was a member"]}
+{"id":"q09","question":"Who worked with Yi Sang in the League of Nine?","question_type":"who","relevant_doc_ids":["wiki.gg:limbuscompany_en:104","wiki.gg:limbuscompany_en:101"],"expected_answer_points":["Dongrang"]}
+{"id":"q10","question":"What is K Corp's connection to Dongrang?","question_type":"what","relevant_doc_ids":["wiki.gg:limbuscompany_en:101"],"expected_answer_points":["researcher at K Corp"]}
+{"id":"q11","question":"How is the Mirror connected to the League of Nine?","question_type":"relationship","relevant_doc_ids":["wiki.gg:limbuscompany_en:105","wiki.gg:limbuscompany_en:104"],"expected_answer_points":["research tied to the League"]}
+{"id":"q12","question":"What canto revisits Yi Sang and Dongrang?","question_type":"event","relevant_doc_ids":["wiki.gg:limbuscompany_en:103"],"expected_answer_points":["Canto IV"]}
+{"id":"q13","question":"Who is Sinner number one?","question_type":"who","relevant_doc_ids":["wiki.gg:limbuscompany_en:102"],"expected_answer_points":["Yi Sang"]}
+{"id":"q14","question":"What faction included Yi Sang and Dongrang?","question_type":"what","relevant_doc_ids":["wiki.gg:limbuscompany_en:104"],"expected_answer_points":["League of Nine"]}
+{"id":"q15","question":"Where is the Mirror's origin discussed?","question_type":"where_established","relevant_doc_ids":["wiki.gg:limbuscompany_en:105"],"expected_answer_points":["League of Nine / Yi Sang"]}

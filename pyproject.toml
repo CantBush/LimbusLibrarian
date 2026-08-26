@@ -1,0 +1,49 @@
+[project]
+name = "limbus-librarian"
+version = "0.1.0"
+description = "Unofficial citation-grounded lore RAG for Limbus Company"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Limbus Librarian contributors" }]
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "pydantic>=2.9.0",
+  "pydantic-settings>=2.6.0",
+  "python-dotenv>=1.0.1",
+  "httpx>=0.27.0",
+  "openai>=1.54.0",
+  "qdrant-client>=1.12.0",
+  "bm25s>=0.2.5",
+  "numpy>=2.0.0",
+  "pyyaml>=6.0.2",
+  "mwparserfromhell>=0.6.6",
+  "langgraph>=0.2.50",
+  "slowapi>=0.1.9",
+]
+
+[project.optional-dependencies]
+rerank = ["sentence-transformers>=3.3.0"]
+dev = ["pytest>=8.3.0", "ruff>=0.7.0"]
+
+[project.scripts]
+limbus = "limbus_librarian.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/limbus_librarian"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/limbus_librarian" = "limbus_librarian"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

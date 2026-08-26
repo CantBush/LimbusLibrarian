@@ -1,0 +1,17 @@
+source_id: limbuscompany_wiki
+allowed_document_types:
+  - story_transcript
+  - character
+  - sinner
+  - abnormality
+  - faction
+  - location
+  - world
+  - event
+skip_document_types:
+  - identity
+  - ego
+  - other
+namespaces:
+  - 0
+max_requests_per_second: 1.0
