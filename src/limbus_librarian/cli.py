@@ -18,13 +18,15 @@ from limbus_librarian.eval.model_gates import (
     GENERATION_EVAL_LIMIT_DEFAULT,
     LUNA_LIMIT_CAP,
     LUNA_LIMIT_DEFAULT,
+    OPENAI_EVAL_TIMEOUT_S,
     LunaGenerationJudge,
     LunaStructuredRewriter,
     run_generation_eval,
     run_luna_experiment,
 )
-from limbus_librarian.generate import generate_answer, heuristic_answer
+from limbus_librarian.generate import heuristic_answer
 from limbus_librarian.graph import run_ask
+from limbus_librarian.llm import LLMAdapter
 from limbus_librarian.ingest.pipeline import (
     incremental_since,
     ingest_connector,
@@ -276,23 +278,40 @@ def main(argv: list[str] | None = None) -> None:
             )
             out = runs_dir / f"{gold_path.stem}.generation_eval.json"
             has_evaluable_labels = any(item.relevant_doc_ids for item in resolved)
+            if has_evaluable_labels:
+                print("Loading retrieval indexes from disk...", flush=True)
             searcher = searcher_from_disk(settings) if has_evaluable_labels else None
             config = load_named_config(settings.configs_dir, "vector_only")
             model_fn = None
             judge = None
             if settings.openai_api_key.strip():
+                from openai import OpenAI
+
+                eval_client = OpenAI(
+                    api_key=settings.openai_api_key,
+                    timeout=OPENAI_EVAL_TIMEOUT_S,
+                )
                 judge = LunaGenerationJudge(
                     settings.openai_api_key,
                     settings.utility_model,
+                    client=eval_client,
+                )
+                adapter = LLMAdapter(
+                    api_key=settings.openai_api_key,
+                    generate_model=settings.generate_model,
+                    client=eval_client,
                 )
 
                 def model_fn(query: str, hits: list) -> str:
-                    return generate_answer(
-                        query,
-                        hits,
-                        settings.generate_model,
-                        settings.openai_api_key,
-                    )
+                    return adapter.generate(query, hits)
+
+                print(
+                    f"Generation eval will score up to {gen_limit} questions. "
+                    "Each keyed question makes two sequential OpenAI calls "
+                    "(generate, then judge) and can take a minute or more. "
+                    f"Requests time out after {int(OPENAI_EVAL_TIMEOUT_S)}s.",
+                    flush=True,
+                )
             report = run_generation_eval(
                 resolved,
                 lambda query: searcher.search(query, config) if searcher else [],
@@ -300,6 +319,7 @@ def main(argv: list[str] | None = None) -> None:
                 extractive_fn=heuristic_answer,
                 model_fn=model_fn,
                 judge=judge,
+                progress=lambda message: print(message, flush=True),
             )
             report.update(
                 {
@@ -323,6 +343,8 @@ def main(argv: list[str] | None = None) -> None:
                     "Generation eval model arm not executed: "
                     "OPENAI_API_KEY is not configured."
                 )
+            elif report["status"] == "interrupted":
+                print("Generation eval stopped early; partial results were written.")
             unresolved = _unresolved_items(resolved)
             if unresolved:
                 print(

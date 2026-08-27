@@ -293,6 +293,49 @@ def test_generation_eval_model_arm_uses_judge():
     assert report["model"]["citation_claim_overlap"] == 1.0
 
 
+def test_generation_eval_prints_progress_and_keeps_partial_on_interrupt():
+    first = ResolvedGoldItem(
+        item=GoldItem(
+            id="q1",
+            question="Who is Dante?",
+            question_type="who",
+            expected_answer_points=["work together"],
+        ),
+        relevant_doc_ids=["doc:1"],
+    )
+    second = ResolvedGoldItem(
+        item=GoldItem(
+            id="q2",
+            question="Who is Vergilius?",
+            question_type="who",
+            expected_answer_points=["guide"],
+        ),
+        relevant_doc_ids=["doc:1"],
+    )
+    messages: list[str] = []
+
+    class InterruptJudge:
+        def judge(self, _question, _answer, _hits):
+            raise KeyboardInterrupt
+
+    report = run_generation_eval(
+        [first, second],
+        lambda _query: [_hit()],
+        model_fn=lambda _query, _hits: "Dante and Vergilius work together.",
+        judge=InterruptJudge(),
+        progress=messages.append,
+    )
+
+    assert report["status"] == "interrupted"
+    assert report["n"] == 1
+    assert report["rows"][0]["id"] == "q1"
+    assert "extractive" in report["rows"][0]
+    assert report["model"]["status"] == "interrupted"
+    assert any("generating" in message for message in messages)
+    assert any("judging" in message for message in messages)
+    assert any("Interrupted" in message for message in messages)
+
+
 def test_generation_eval_cli_without_key_writes_extractive(
     tmp_path, monkeypatch, capsys
 ):

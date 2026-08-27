@@ -15,6 +15,7 @@ LUNA_LIMIT_DEFAULT = 6
 LUNA_LIMIT_CAP = 8
 GENERATION_EVAL_LIMIT_DEFAULT = 20
 GENERATION_EVAL_LIMIT_CAP = 20
+OPENAI_EVAL_TIMEOUT_S = 300.0
 
 
 class StructuredRewrite(BaseModel):
@@ -35,7 +36,7 @@ class LunaStructuredRewriter:
         if client is None:
             from openai import OpenAI
 
-            client = OpenAI(api_key=api_key)
+            client = OpenAI(api_key=api_key, timeout=OPENAI_EVAL_TIMEOUT_S)
         self.client = client
 
     def rewrite(
@@ -196,7 +197,7 @@ class LunaGenerationJudge:
         if client is None:
             from openai import OpenAI
 
-            client = OpenAI(api_key=api_key)
+            client = OpenAI(api_key=api_key, timeout=OPENAI_EVAL_TIMEOUT_S)
         self.client = client
 
     def judge(
@@ -290,6 +291,7 @@ def run_generation_eval(
     extractive_fn: Callable[[str, list[RetrievalHit]], str] | None = None,
     model_fn: Callable[[str, list[RetrievalHit]], str] | None = None,
     judge: LunaGenerationJudge | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Score generated answers against gold bullets; skip unresolved items."""
     answer_fn = extractive_fn or heuristic_answer
@@ -309,51 +311,89 @@ def run_generation_eval(
     model_coverage_scores: list[float] = []
     faithfulness_scores: list[float] = []
     overlap_scores: list[float] = []
+    interrupted = False
 
-    for item in selected:
-        hits = retrieve_fn(item.item.question)
-        extractive_answer = answer_fn(item.item.question, hits)
-        extractive = lexical_coverage(
-            extractive_answer, item.item.expected_answer_points
-        )
-        extractive_scores.append(extractive["coverage"])
-        row: dict[str, Any] = {
-            "id": item.item.id,
-            "question_type": item.item.question_type,
-            "status": item.status,
-            "extractive": extractive,
-        }
-        if model_enabled:
-            model_answer = model_fn(item.item.question, hits)
-            coverage = lexical_coverage(model_answer, item.item.expected_answer_points)
-            judgment = judge.judge(item.item.question, model_answer, hits)
-            claim_metrics = _claim_metrics(judgment.claims)
-            model_coverage_scores.append(coverage["coverage"])
-            faithfulness_scores.append(claim_metrics["faithfulness"])
-            overlap_scores.append(claim_metrics["citation_claim_overlap"])
-            row["model"] = {
-                **coverage,
-                **claim_metrics,
-                "judgment": judgment.model_dump(),
+    def _progress(message: str) -> None:
+        if progress is not None:
+            progress(message)
+
+    total = len(selected)
+    try:
+        for index, item in enumerate(selected, start=1):
+            prefix = f"[{index}/{total}] {item.item.id}"
+            _progress(f"{prefix}: retrieving")
+            hits = retrieve_fn(item.item.question)
+            extractive_answer = answer_fn(item.item.question, hits)
+            extractive = lexical_coverage(
+                extractive_answer, item.item.expected_answer_points
+            )
+            extractive_scores.append(extractive["coverage"])
+            row: dict[str, Any] = {
+                "id": item.item.id,
+                "question_type": item.item.question_type,
+                "status": item.status,
+                "extractive": extractive,
             }
-        rows.append(row)
+            rows.append(row)
+            if model_enabled:
+                try:
+                    _progress(f"{prefix}: generating")
+                    model_answer = model_fn(item.item.question, hits)
+                    coverage = lexical_coverage(
+                        model_answer, item.item.expected_answer_points
+                    )
+                    _progress(f"{prefix}: judging")
+                    judgment = judge.judge(item.item.question, model_answer, hits)
+                    claim_metrics = _claim_metrics(judgment.claims)
+                    model_coverage_scores.append(coverage["coverage"])
+                    faithfulness_scores.append(claim_metrics["faithfulness"])
+                    overlap_scores.append(claim_metrics["citation_claim_overlap"])
+                    row["model"] = {
+                        **coverage,
+                        **claim_metrics,
+                        "judgment": judgment.model_dump(),
+                    }
+                    _progress(
+                        f"{prefix}: done coverage={coverage['coverage']:.3f} "
+                        f"faithfulness={claim_metrics['faithfulness']:.3f}"
+                    )
+                except Exception as exc:
+                    row["model"] = {"error": str(exc)[:400]}
+                    _progress(f"{prefix}: model arm failed ({exc})")
+            else:
+                _progress(f"{prefix}: extractive coverage={extractive['coverage']:.3f}")
+    except KeyboardInterrupt:
+        interrupted = True
+        _progress("Interrupted; writing partial results.")
 
     model_arm: dict[str, Any]
-    if model_enabled:
-        model_arm = {
-            "status": "completed",
-            "coverage": _mean(model_coverage_scores),
-            "faithfulness": _mean(faithfulness_scores),
-            "citation_claim_overlap": _mean(overlap_scores),
-        }
-    else:
+    if not model_enabled:
         model_arm = {
             "status": "not_executed",
             "reason": "OPENAI_API_KEY is not configured",
         }
+    elif model_coverage_scores:
+        model_arm = {
+            "status": "interrupted" if interrupted else "completed",
+            "coverage": _mean(model_coverage_scores),
+            "faithfulness": _mean(faithfulness_scores),
+            "citation_claim_overlap": _mean(overlap_scores),
+        }
+    elif interrupted:
+        model_arm = {
+            "status": "interrupted",
+            "reason": "stopped before any model judgments finished",
+        }
+    else:
+        model_arm = {
+            "status": "completed",
+            "coverage": 0.0,
+            "faithfulness": 0.0,
+            "citation_claim_overlap": 0.0,
+        }
 
     return {
-        "status": "completed",
+        "status": "interrupted" if interrupted else "completed",
         "slice": "resolved gold items; skip unresolved labels",
         "limit": limit,
         "n": len(rows),

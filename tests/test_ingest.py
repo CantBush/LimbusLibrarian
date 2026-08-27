@@ -4,7 +4,12 @@ from pathlib import Path
 import pytest
 
 from limbus_librarian.chunking import chunk_document, chunk_documents
-from limbus_librarian.ingest.classify import classify_document, detect_cantos, is_lore_first
+from limbus_librarian.ingest.classify import (
+    classify_document,
+    detect_cantos,
+    is_lore_first,
+    is_media_subpage,
+)
 from limbus_librarian.ingest.pipeline import ingest_connector, ingest_incremental
 from limbus_librarian.models import SourceDocument
 from limbus_librarian.sources.fixture import FixtureSourceConnector
@@ -22,6 +27,17 @@ def test_overview_identity_and_ego_titles_are_world():
     assert classify_document("E.G.O", []) == "world"
     assert classify_document("EGO", []) == "world"
     assert is_lore_first("world")
+
+
+def test_gallery_and_sprite_subpages_are_not_lore_first():
+    assert is_media_subpage("Faust/Gallery")
+    assert is_media_subpage("Gregor/Sprites")
+    assert not is_media_subpage("Gregor/Story")
+    assert not is_media_subpage("Faust")
+    assert classify_document("Faust/Gallery", ["Characters", "Sinners"]) == "other"
+    assert classify_document("Gregor/Sprites", ["Characters"]) == "other"
+    assert classify_document("Gregor/Story", ["Characters"]) == "character"
+    assert not is_lore_first("other")
 
 
 def test_detect_cantos_normalizes_later_cantos_and_digits():
@@ -199,3 +215,45 @@ def test_chunking_merges_tiny_leftovers_and_strips_tables():
     assert "The Head enforces" in combined
     again = chunk_document(doc)
     assert [chunk.chunk_id for chunk in again] == [chunk.chunk_id for chunk in chunks]
+
+
+def test_catalog_and_retrieval_hide_media_subpages(tmp_path: Path):
+    from limbus_librarian.catalog import CatalogStore
+    from limbus_librarian.index.common import matches_filters
+
+    faust = SourceDocument(
+        doc_id="wiki:faust",
+        source_id="fixture",
+        url="https://example.test/wiki/Faust",
+        title="Faust",
+        page_id=1,
+        revision_id=1,
+        document_type="sinner",
+        retrieved_at="2026-01-01T00:00:00Z",
+        plain_text="The Sinner who developed the engine of Mephistopheles.",
+    )
+    gallery = SourceDocument(
+        doc_id="wiki:faust-gallery",
+        source_id="fixture",
+        url="https://example.test/wiki/Faust/Gallery",
+        title="Faust/Gallery",
+        page_id=2,
+        revision_id=1,
+        document_type="character",
+        retrieved_at="2026-01-01T00:00:00Z",
+        plain_text="__TOC__ CGs = Leviathan",
+    )
+    documents = tmp_path / "documents.jsonl"
+    documents.write_text(
+        faust.model_dump_json() + "\n" + gallery.model_dump_json() + "\n",
+        encoding="utf-8",
+    )
+    catalog = CatalogStore(tmp_path / "missing.sqlite", documents)
+    listed = catalog.list(document_types={"character", "sinner"})
+    assert {item["title"] for item in listed["items"]} == {"Faust"}
+    assert catalog.get(gallery.doc_id) is None
+
+    gallery_chunk = chunk_document(gallery)[0]
+    faust_chunk = chunk_document(faust)[0]
+    assert matches_filters(gallery_chunk, None) is False
+    assert matches_filters(faust_chunk, None) is True

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from limbus_librarian.models import Chunk, RetrievalHit
+from limbus_librarian.ingest.classify import is_media_subpage
 
 _ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
 
@@ -52,6 +53,8 @@ def chunk_to_hit(chunk: Chunk, score: float, rank: int, retriever_name: str) -> 
 
 
 def matches_filters(chunk: Chunk, filters: dict | None) -> bool:
+    if is_media_subpage(chunk.title):
+        return False
     if not filters:
         return True
     types = filters.get("document_types")

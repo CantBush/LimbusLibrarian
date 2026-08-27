@@ -18,6 +18,17 @@ LORE_TYPES: frozenset[str] = frozenset(
 )
 
 _OVERVIEW_WORLD_TITLES = frozenset({"identity", "e.g.o.", "e.g.o", "ego"})
+_MEDIA_SUBPAGES = frozenset(
+    {
+        "gallery",
+        "sprites",
+        "sprite",
+        "images",
+        "artwork",
+        "cgs",
+        "animations",
+    }
+)
 _SINNERS = {
     "yi sang",
     "faust",
@@ -40,6 +51,8 @@ def classify_document(title: str, categories: list[str]) -> DocumentType:
 
     if title_l in _OVERVIEW_WORLD_TITLES:
         return "world"
+    if is_media_subpage(title):
+        return "other"
     if (
         any("identit" in c for c in cats)
         or title_l.endswith(("/identity", "/identity story"))
@@ -74,6 +87,13 @@ def classify_document(title: str, categories: list[str]) -> DocumentType:
 
 def is_lore_first(document_type: DocumentType) -> bool:
     return document_type in LORE_TYPES
+
+
+def is_media_subpage(title: str) -> bool:
+    """True for visual wiki tabs such as Faust/Gallery or Gregor/Sprites."""
+    if "/" not in title:
+        return False
+    return title.rsplit("/", 1)[-1].strip().casefold() in _MEDIA_SUBPAGES
 
 
 _CANTO_TOKEN = re.compile(

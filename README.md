@@ -40,7 +40,8 @@ python -m limbus_librarian.cli serve --host 0.0.0.0 --port 8080
 
 1. **Ingest** wiki-like pages (fixtures, a JSONL dump, or a polite MediaWiki API client).
    Pages are parsed, classified (character, canto, faction, …), and filtered to a
-   **lore-first** set (combat Identity/E.G.O. pages are skipped in V1).
+   **lore-first** set (combat Identity/E.G.O. pages and visual subpages such as
+   `/Gallery` and `/Sprites` are skipped in V1; `/Story` tabs are kept).
 2. **Chunk** by section headings and store documents + chunks on disk.
 3. **Retrieve** with BM25 (keywords), dense vectors (meaning), or **hybrid RRF**.
    `hybrid_graph` adds a third deterministic list from wikilink/infobox neighbors.
@@ -88,8 +89,10 @@ python -m limbus_librarian.cli ingest-wiki --since
 python -m limbus_librarian.cli ingest-wiki --since 2026-08-01T00:00:00Z
 ```
 
-The command classifies and stores lore pages, skips Identity/E.G.O. pages, chunks
-the corpus, and rebuilds BM25 plus the dense cache. If `OPENAI_API_KEY` is set,
+The command classifies and stores lore pages, skips Identity/E.G.O. combat pages
+and visual subpages (`/Gallery`, `/Sprites`, and similar image tabs), chunks
+the corpus, and rebuilds BM25 plus the dense cache. `/Story` character tabs are
+kept. If `OPENAI_API_KEY` is set,
 dense embeddings use OpenAI in batches; otherwise they use the local deterministic
 embedder. It does not perform model training.
 
@@ -198,5 +201,9 @@ resolved questions scored coverage 0.000 (gold bullets are not verbatim in
 retrieved snippets). Faithfulness and citation-claim overlap use one bounded
 structured Luna call per selected question and require `OPENAI_API_KEY`;
 without a key the model arm is `not_executed` while extractive coverage is
-still recorded. The judge may only see retrieved chunk texts and cannot invent
-chunk IDs. Default generator, prompt, and hop limit are unchanged.
+still recorded. With a key the command is sequential and slow: up to 20
+questions × two OpenAI calls (generate, then judge), often a minute or more
+each. It now prints per-question progress, times out a stuck request after
+300s, and writes a partial report if you Ctrl+C. The judge may only see
+retrieved chunk texts and cannot invent chunk IDs. Default generator, prompt,
+and hop limit are unchanged.

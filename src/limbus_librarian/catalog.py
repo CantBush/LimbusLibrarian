@@ -4,6 +4,7 @@ import sqlite3
 from pathlib import Path
 
 from limbus_librarian.graph.store import GraphStore
+from limbus_librarian.ingest.classify import is_media_subpage
 from limbus_librarian.ingest.pipeline import load_documents
 from limbus_librarian.models import SourceDocument
 
@@ -62,6 +63,8 @@ class CatalogStore:
             document = self._documents.get(doc_id)
             if document is None:
                 continue
+            if is_media_subpage(document.title):
+                continue
             if document_types and document.document_type not in document_types:
                 continue
             searchable = f"{document.title} {document.plain_text}".casefold()
@@ -98,7 +101,7 @@ class CatalogStore:
         if doc_id not in self._catalog_ids:
             return None
         document = self._documents.get(doc_id)
-        if document is None:
+        if document is None or is_media_subpage(document.title):
             return None
         return {
             "doc_id": document.doc_id,
@@ -116,4 +119,9 @@ class CatalogStore:
     def related(self, doc_id: str, limit: int = 12) -> list[dict]:
         if doc_id not in self._catalog_ids:
             return []
-        return GraphStore(self.catalog_path).related(doc_id, limit=limit)
+        items = GraphStore(self.catalog_path).related(doc_id, limit=limit)
+        return [
+            item
+            for item in items
+            if not is_media_subpage(str(item.get("title") or ""))
+        ][:limit]
