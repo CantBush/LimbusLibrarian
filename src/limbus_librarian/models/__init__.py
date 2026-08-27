@@ -143,9 +143,17 @@ class RetrievalConfig(BaseModel):
     use_bm25: bool = True
     use_graph: bool = False
     use_rerank: bool = False
+    rerank_backend: Literal["none", "lexical", "cross_encoder"] = "none"
     use_refine: bool = False
     graph_max_neighbors: int = 8
     rrf_k: int = 60
     min_kept: int = 2
     relevance_threshold: float = 0.15
     max_hops: int = 0
+
+    @property
+    def effective_rerank_backend(self) -> Literal["none", "lexical", "cross_encoder"]:
+        """Resolve the backend while retaining old `use_rerank` config compatibility."""
+        if "rerank_backend" in self.model_fields_set:
+            return self.rerank_backend
+        return "lexical" if self.use_rerank else "none"

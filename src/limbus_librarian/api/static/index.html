@@ -9,7 +9,18 @@
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="wordmark"><span class="mark">L</span><div><strong>LIMBUS<br>LIBRARIAN</strong><small>LORE RESEARCH</small></div></div>
+      <div class="wordmark">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 48 56" focusable="false">
+            <path class="book-cover" d="M6 8.5C12 6 18.2 7.2 24 11v38c-5.8-3.8-12-5-18-2.5z"/>
+            <path class="book-cover" d="M42 8.5C36 6 29.8 7.2 24 11v38c5.8-3.8 12-5 18-2.5z"/>
+            <path class="book-page" d="M9.5 12.5c4.4-1 8.3 0 11.5 2.2v28.5c-3.6-1.8-7.4-2.4-11.5-1.5z"/>
+            <path class="book-page" d="M38.5 12.5c-4.4-1-8.3 0-11.5 2.2v28.5c3.6-1.8 7.4-2.4 11.5-1.5z"/>
+            <path class="book-letter" d="M17 18v17h8"/>
+          </svg>
+        </span>
+        <div><strong>LIMBUS<br>LIBRARIAN</strong><small>LORE RESEARCH</small></div>
+      </div>
       <button id="new-chat" class="new-chat">＋ <span>New Chat</span></button>
       <p class="group-label">Today</p>
       <nav id="history" class="history"><span class="history-empty">No saved chats yet.</span></nav>
@@ -24,7 +35,7 @@
       <header>
         <div class="mobile-brand">Limbus Librarian</div>
         <nav>
-          <a class="active" data-view="chat">Chat</a>
+          <a class="active" data-view="chat" aria-current="page">Chat</a>
           <a data-view="explore">Explore</a><a data-view="characters">Characters</a><a data-view="glossary">Glossary</a><a data-view="about">About</a>
         </nav>
       </header>
@@ -37,6 +48,7 @@
             </article>
             <article class="answer-card">
               <div class="assistant-title"><span class="avatar librarian-avatar">L</span><strong>Limbus Librarian</strong></div>
+              <p id="ask-status" class="ask-status hidden" role="status" aria-live="polite"></p>
               <div id="answer-text" class="answer-text">Ask a question to search the local lore corpus. Answers are grounded in retrieved sources and include citations.</div>
               <div id="citation-chips" class="chips"></div>
               <div class="answer-actions"><button id="copy-answer" title="Copy answer">Copy</button></div>
@@ -59,9 +71,9 @@
                 </select>
               </label>
               <select id="config" aria-label="Retrieval mode">
+                <option value="vector_only">Semantic Search</option>
                 <option value="hybrid">Hybrid Search</option>
                 <option value="hybrid_graph">Hybrid + Graph</option>
-                <option value="vector_only">Semantic Search</option>
               </select>
             </div>
             <fieldset class="type-filters">

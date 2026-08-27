@@ -5,6 +5,7 @@ from limbus_librarian.config import Settings
 from limbus_librarian.config_loader import load_named_config
 from limbus_librarian.eval import evaluate_retrieval, load_gold
 from limbus_librarian.graph import build_ask_graph, run_ask
+from limbus_librarian.graph.heuristics import analyze_query
 from limbus_librarian.graph.store import GraphStore
 from limbus_librarian.ingest.pipeline import load_documents
 from limbus_librarian.models import SourceDocument
@@ -67,8 +68,23 @@ def test_search_and_eval_and_graph(tmp_path: Path, monkeypatch):
     assert answer.citations
     assert answer.trace is not None
     assert answer.trace.hops <= 1
+    assert answer.trace.analysis is not None
+    assert answer.trace.analysis.entities == ["Dongrang"]
+    assert "character" in answer.trace.analysis.document_types
     step_names = [s.name for s in answer.trace.steps]
     assert "retrieve" in step_names
+
+    league_answer = run_ask(
+        "What was the League of Nine?",
+        searcher,
+        cfg,
+        api_key="",
+        debug=True,
+    )
+    assert league_answer.trace is not None
+    assert league_answer.trace.analysis is not None
+    assert league_answer.trace.analysis.entities == ["League of Nine"]
+    assert "faction" in league_answer.trace.analysis.document_types
 
     compiled = build_ask_graph(searcher)
     result = compiled.invoke(
@@ -102,6 +118,17 @@ def test_sqlite_graph_related_pages_and_third_rrf_list(tmp_path: Path, monkeypat
     yi_sang = next(document for document in documents if document.title == "Yi Sang")
     dongrang = next(document for document in documents if document.title == "Dongrang")
     store = GraphStore(settings.catalog_path)
+    assert store.match_entities("How did the League of Nine know Dongrang?") == [
+        ("League of Nine", "faction"),
+        ("Dongrang", "character"),
+    ]
+    assert store.match_entities("Explain The Mirror.") == [("The Mirror", "world")]
+    unmatched = analyze_query(
+        "Explain Professor Zorblax.",
+        store.match_entities("Explain Professor Zorblax."),
+    )
+    assert unmatched.entities == []
+    assert unmatched.document_types == []
 
     related = store.related(yi_sang.doc_id)
     assert {item["title"] for item in related} >= {"Dongrang", "League of Nine", "The Mirror"}

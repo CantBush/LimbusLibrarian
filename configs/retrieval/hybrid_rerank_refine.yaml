@@ -6,6 +6,7 @@ k_final: 8
 use_dense: true
 use_bm25: true
 use_rerank: true
+rerank_backend: lexical
 use_refine: true
 rrf_k: 60
 min_kept: 2

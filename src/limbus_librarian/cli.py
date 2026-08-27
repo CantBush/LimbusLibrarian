@@ -13,6 +13,7 @@ from limbus_librarian.eval import (
     resolve_gold,
     write_eval_report,
 )
+from limbus_librarian.eval.model_gates import LunaStructuredRewriter, run_luna_experiment
 from limbus_librarian.graph import run_ask
 from limbus_librarian.ingest.pipeline import (
     incremental_since,
@@ -21,6 +22,7 @@ from limbus_librarian.ingest.pipeline import (
     load_documents,
     record_incremental_success,
 )
+from limbus_librarian.ingest.stats import build_ingest_stats, format_ingest_stats
 from limbus_librarian.runtime import (
     bootstrap_from_fixtures,
     rebuild_indexes,
@@ -35,6 +37,11 @@ COMPARISON_CONFIGS = (
     "hybrid",
     "hybrid_rerank",
     "hybrid_graph",
+)
+RERANK_COMPARISON_CONFIGS = (
+    "hybrid",
+    "hybrid_rerank",
+    "hybrid_rerank_cross_encoder",
 )
 
 
@@ -59,24 +66,43 @@ def main(argv: list[str] | None = None) -> None:
         metavar="TIMESTAMP",
         help="Incrementally ingest recent changes since a timestamp or saved watermark",
     )
+    sub.add_parser("ingest-stats", help="Summarize the local ingested wiki catalog")
     search_p = sub.add_parser("search", help="Run retrieval")
     search_p.add_argument("query")
-    search_p.add_argument("--config", default="hybrid")
+    search_p.add_argument("--config", default="vector_only")
     ask_p = sub.add_parser("ask", help="Run the LangGraph ask path")
     ask_p.add_argument("query")
-    ask_p.add_argument("--config", default="hybrid_rerank_refine")
+    ask_p.add_argument("--config", default="vector_only")
     ask_p.add_argument("--debug", action="store_true")
     eval_p = sub.add_parser("eval", help="Retrieval evaluation on gold set")
-    eval_p.add_argument("--config", default="hybrid")
+    eval_p.add_argument("--config", default="vector_only")
     eval_p.add_argument(
         "--gold",
         default="wiki_v1",
         help="Gold set name from data/eval/gold (default: wiki_v1)",
     )
-    eval_p.add_argument(
+    eval_modes = eval_p.add_mutually_exclusive_group()
+    eval_modes.add_argument(
         "--compare",
         action="store_true",
         help="Compare lexical, vector, hybrid, reranked, and graph retrieval",
+    )
+    eval_modes.add_argument(
+        "--rerank-compare",
+        action="store_true",
+        help="Explicitly compare hybrid, lexical rerank, and cross-encoder rerank",
+    )
+    eval_modes.add_argument(
+        "--luna-experiment",
+        action="store_true",
+        help="Explicitly run bounded Luna rewrite/relevance A/B (requires API key)",
+    )
+    eval_p.add_argument(
+        "--experiment-limit",
+        type=int,
+        choices=range(1, 9),
+        default=6,
+        help="Maximum Luna calls (1-8, default: 6)",
     )
     eval_p.add_argument("--k", type=int, default=8)
     serve_p = sub.add_parser("serve", help="Serve the API and local dashboard")
@@ -154,17 +180,73 @@ def main(argv: list[str] | None = None) -> None:
         print("Restart `limbus serve` or POST /v1/reload to load the new indexes.")
         return
 
+    if args.cmd == "ingest-stats":
+        state = (
+            json.loads(settings.ingest_state_path.read_text(encoding="utf-8"))
+            if settings.ingest_state_path.exists()
+            else {}
+        )
+        stats = build_ingest_stats(load_documents(settings.documents_path), state)
+        print(format_ingest_stats(stats))
+        return
+
     if args.cmd == "eval":
         gold_path = settings.gold_path_for(args.gold)
         if not gold_path.exists():
             raise FileNotFoundError(f"Unknown gold set: {args.gold}")
         gold = load_gold(gold_path)
         resolved = resolve_gold(gold, load_documents(settings.documents_path))
-        config_ids = COMPARISON_CONFIGS if args.compare else (args.config,)
+        runs_dir = Path(settings.data_dir) / "eval" / "runs"
+        if args.luna_experiment:
+            out = runs_dir / f"{gold_path.stem}.luna_experiment.json"
+            if not settings.openai_api_key.strip():
+                report = {
+                    "status": "not_executed",
+                    "reason": "OPENAI_API_KEY is not configured",
+                    "gold_set": gold_path.stem,
+                    "baseline_config": "vector_only",
+                    "model": settings.utility_model,
+                    "limit": args.experiment_limit,
+                }
+                write_eval_report(out, report)
+                print("Luna experiment not executed: OPENAI_API_KEY is not configured.")
+                print(f"Wrote {out}")
+                return
+            config = load_named_config(settings.configs_dir, "vector_only")
+            searcher = searcher_from_disk(settings)
+            rewriter = LunaStructuredRewriter(
+                settings.openai_api_key,
+                settings.utility_model,
+            )
+            report = run_luna_experiment(
+                resolved,
+                lambda query: searcher.search(query, config),
+                rewriter,
+                limit=args.experiment_limit,
+                k=args.k,
+            )
+            report.update(
+                {
+                    "gold_set": gold_path.stem,
+                    "baseline_config": config.id,
+                    "model": settings.utility_model,
+                    "k": args.k,
+                }
+            )
+            write_eval_report(out, report)
+            display_keys = ("status", "n", "heuristic", "luna_rewrite_and_grade")
+            print(json.dumps({key: report[key] for key in display_keys}, indent=2))
+            print(f"Wrote {out}")
+            return
+        if args.rerank_compare:
+            config_ids = RERANK_COMPARISON_CONFIGS
+        elif args.compare:
+            config_ids = COMPARISON_CONFIGS
+        else:
+            config_ids = (args.config,)
         has_evaluable_labels = any(item.relevant_doc_ids for item in resolved)
         searcher = searcher_from_disk(settings) if has_evaluable_labels else None
         summaries: dict[str, dict] = {}
-        runs_dir = Path(settings.data_dir) / "eval" / "runs"
         for config_id in config_ids:
             config = load_named_config(settings.configs_dir, config_id)
             summary = evaluate_retrieval(
@@ -174,14 +256,16 @@ def main(argv: list[str] | None = None) -> None:
             )
             summary["gold_set"] = gold_path.stem
             summary["config_id"] = config.id
+            summary["rerank_backend"] = config.effective_rerank_backend
             summary["k"] = args.k
             out = runs_dir / f"{gold_path.stem}.{config.id}.json"
             write_eval_report(out, summary)
             summaries[config.id] = summary
 
-        if args.compare:
+        if args.compare or args.rerank_compare:
             comparison = build_comparison_report(gold_path.stem, args.k, summaries)
-            out = runs_dir / f"{gold_path.stem}.comparison.json"
+            suffix = "rerank_comparison" if args.rerank_compare else "comparison"
+            out = runs_dir / f"{gold_path.stem}.{suffix}.json"
             write_eval_report(out, comparison)
             print(format_comparison_table(summaries))
         else:
@@ -245,6 +329,7 @@ def build_comparison_report(gold_set: str, k: int, summaries: dict[str, dict]) -
                 key: summary[key]
                 for key in (
                     "config_id",
+                    "rerank_backend",
                     "n",
                     "n_evaluated",
                     "n_unresolved",

@@ -1,4 +1,4 @@
-id: hybrid_rerank
+id: hybrid_rerank_cross_encoder
 k_dense: 40
 k_bm25: 40
 k_fused: 50
@@ -6,7 +6,7 @@ k_final: 8
 use_dense: true
 use_bm25: true
 use_rerank: true
-rerank_backend: lexical
+rerank_backend: cross_encoder
 use_refine: false
 rrf_k: 60
 min_kept: 2

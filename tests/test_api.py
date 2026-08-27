@@ -78,6 +78,7 @@ def test_api_ask_health_configs(tmp_path: Path, monkeypatch):
                 "config_id": "bm25_only",
                 "debug": True,
                 "document_types": ["character"],
+                "cantos": ["Canto IV"],
                 "max_canto": 4,
                 "history": ["What happened in Canto IV?"],
             },
@@ -92,6 +93,7 @@ def test_api_ask_health_configs(tmp_path: Path, monkeypatch):
             step for step in body["trace"]["steps"] if step["name"] == "retrieve"
         )
         assert retrieve["detail"]["filters"]["document_types"] == ["character"]
+        assert retrieve["detail"]["filters"]["cantos"] == ["Canto IV"]
         assert all(
             hit["metadata"]["document_type"] == "character"
             for hit in body["trace"]["hits"]
@@ -102,11 +104,20 @@ def test_api_ask_health_configs(tmp_path: Path, monkeypatch):
         assert src.json()["chunk_id"] == chunk_id
 
         app_js = client.get("/static/app.js")
+        styles_css = client.get("/static/styles.css")
         assert "inline-citation" in app_js.text
         assert "source-${number}" in app_js.text
         assert "localStorage" in app_js.text
         assert "history: recentHistory" in app_js.text
         assert "data-related-doc" in app_js.text
+        assert '<svg viewBox="0 0 48 56"' in ui.text
+        assert 'id="ask-status"' in ui.text
+        assert "prefers-reduced-motion" in styles_css.text
+        assert "skeleton-shimmer" in styles_css.text
+        assert '["Searching…", "Reading sources…", "Writing…"]' in app_js.text
+        assert "query.value = \"\";" in app_js.text
+        assert "restoreSession();" in app_js.text
+        assert 'setAttribute("aria-busy", "true")' in app_js.text
         assert "data-stub" not in ui.text
 
         too_much_history = client.post(

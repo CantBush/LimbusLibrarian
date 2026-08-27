@@ -10,6 +10,16 @@ const ACTIVE_KEY = "limbus-librarian.active-session.v1";
 let sessions = loadSessions();
 let activeSessionId = localStorage.getItem(ACTIVE_KEY);
 let catalogState = { mode: "explore", page: 1, query: "" };
+let askStatusTimer;
+let viewTransitionToken = 0;
+
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 function loadSessions() {
   try {
@@ -91,7 +101,7 @@ function renderAnswer(answer, citations) {
       if (!card) return;
       document.querySelectorAll(".source-card.highlight").forEach((item) => item.classList.remove("highlight"));
       card.classList.add("highlight");
-      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "center" });
       setTimeout(() => card.classList.remove("highlight"), 1800);
     });
     const sup = document.createElement("sup");
@@ -167,6 +177,52 @@ function restoreSession() {
   renderSessionList();
 }
 
+function setAskLoading() {
+  const status = $("#ask-status");
+  const states = ["Searching…", "Reading sources…", "Writing…"];
+  let stateIndex = 0;
+  status.textContent = states[stateIndex];
+  status.classList.remove("hidden");
+  const surfaces = [$(".answer-card"), $("#sources").closest(".panel"), $("#bars").closest(".panel")];
+  surfaces.forEach((surface) => {
+    surface.classList.add("is-loading");
+    surface.setAttribute("aria-busy", "true");
+  });
+  answerText.innerHTML = '<span class="skeleton-stack" aria-hidden="true"><span class="skeleton-line"></span><span class="skeleton-line"></span><span class="skeleton-line"></span></span>';
+  $("#citation-chips").innerHTML = '<span class="skeleton-chip" aria-hidden="true"></span>';
+  $("#source-count").textContent = "Searching";
+  $("#sources").classList.remove("empty");
+  $("#sources").innerHTML = '<span aria-hidden="true"><span class="skeleton-source"></span><span class="skeleton-source"></span><span class="skeleton-source"></span></span>';
+  $("#bars").classList.remove("empty");
+  $("#bars").innerHTML = '<span aria-hidden="true"><span class="skeleton-bar"></span><span class="skeleton-bar"></span><span class="skeleton-bar"></span></span>';
+  askStatusTimer = setInterval(() => {
+    stateIndex = Math.min(stateIndex + 1, states.length - 1);
+    status.textContent = states[stateIndex];
+    if (stateIndex === states.length - 1) clearInterval(askStatusTimer);
+  }, 1100);
+}
+
+function stopAskLoading() {
+  clearInterval(askStatusTimer);
+  askStatusTimer = undefined;
+  const status = $("#ask-status");
+  status.classList.add("hidden");
+  status.textContent = "";
+  [$(".answer-card"), $("#sources").closest(".panel"), $("#bars").closest(".panel")].forEach((surface) => {
+    surface.classList.remove("is-loading");
+    surface.removeAttribute("aria-busy");
+  });
+}
+
+function fadeInResults() {
+  [answerText, $("#citation-chips"), $("#sources"), $("#bars")].forEach((element) => {
+    element.classList.remove("results-enter");
+    void element.offsetWidth;
+    element.classList.add("results-enter");
+    setTimeout(() => element.classList.remove("results-enter"), 280);
+  });
+}
+
 async function ask(question) {
   const send = $(".send");
   const session = currentSession();
@@ -175,8 +231,8 @@ async function ask(question) {
   const maxCanto = $("#max-canto").value;
   send.disabled = true;
   errorBox.textContent = "";
-  answerText.textContent = "Searching the archives…";
   $(".user-message p").textContent = question;
+  setAskLoading();
   try {
     const response = await fetch("/v1/ask", {
       method: "POST",
@@ -197,6 +253,7 @@ async function ask(question) {
     renderCitations(body.citations || []);
     renderSources(body.citations || [], hits);
     renderBars(hits);
+    fadeInResults();
     session.turns.push({ query: question, answer: body.answer, citations: body.citations || [], hits, createdAt: Date.now() });
     session.title = session.turns[0].query.slice(0, 65);
     session.updatedAt = Date.now();
@@ -205,9 +262,10 @@ async function ask(question) {
     renderSessionList();
     $("#history-row").textContent = `${session.turns.length} question${session.turns.length === 1 ? "" : "s"} saved locally`;
   } catch (error) {
-    answerText.textContent = "I could not complete that request.";
+    restoreSession();
     errorBox.textContent = error.message;
   } finally {
+    stopAskLoading();
     send.disabled = false;
   }
 }
@@ -218,16 +276,45 @@ const catalogModes = {
   glossary: { title: "Glossary", description: "Browse world concepts, factions, abnormalities, locations, and events.", types: "world,faction,abnormality,location,event" }
 };
 
+async function transitionTo(target, updateContent) {
+  const panels = [...document.querySelectorAll(".view-panel")];
+  const current = panels.find((panel) => !panel.classList.contains("hidden"));
+  const refreshCurrent = current === target && updateContent;
+  if (current === target && !refreshCurrent) return;
+  const token = ++viewTransitionToken;
+  panels.forEach((panel) => panel.classList.remove("view-enter", "view-exit"));
+  if (!current || prefersReducedMotion()) {
+    if (updateContent) await updateContent();
+    panels.forEach((panel) => panel.classList.toggle("hidden", panel !== target));
+    return;
+  }
+  current.classList.add("view-exit");
+  await delay(180);
+  if (token !== viewTransitionToken) return;
+  if (!refreshCurrent) current.classList.add("hidden");
+  current.classList.remove("view-exit");
+  if (updateContent) await updateContent();
+  if (token !== viewTransitionToken) return;
+  if (!refreshCurrent) target.classList.remove("hidden");
+  target.classList.add("view-enter");
+  await delay(240);
+  if (token === viewTransitionToken) target.classList.remove("view-enter");
+}
+
 function showView(name) {
-  document.querySelectorAll(".view-panel").forEach((panel) => panel.classList.add("hidden"));
   const target = name === "about" ? $("#about-view") : name === "chat" ? $("#chat-view") : $("#catalog-view");
-  target.classList.remove("hidden");
-  document.querySelectorAll("header [data-view]").forEach((link) => link.classList.toggle("active", link.dataset.view === name));
-  if (catalogModes[name]) {
+  document.querySelectorAll("header [data-view]").forEach((link) => {
+    const active = link.dataset.view === name;
+    link.classList.toggle("active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  });
+  const updateCatalog = catalogModes[name] ? async () => {
     catalogState = { mode: name, page: 1, query: "" };
     $("#catalog-search").value = "";
-    loadCatalog();
-  }
+    await loadCatalog();
+  } : undefined;
+  return transitionTo(target, updateCatalog);
 }
 
 async function loadCatalog() {
@@ -265,9 +352,8 @@ function renderCatalog(body) {
   ).join("") : '<div class="catalog-empty">No matching pages in the loaded corpus.</div>';
   results.querySelectorAll("[data-open-doc]").forEach((button) => button.addEventListener("click", () => openDocument(button.dataset.openDoc)));
   results.querySelectorAll("[data-ask-title]").forEach((button) => button.addEventListener("click", () => {
-    showView("chat");
     query.value = `Who is ${button.dataset.askTitle}?`;
-    query.focus();
+    showView("chat").then(() => query.focus());
   }));
   const pagination = $("#catalog-pagination");
   pagination.innerHTML = body.pages > 1
@@ -278,7 +364,7 @@ function renderCatalog(body) {
   pagination.querySelectorAll("[data-page]:not(:disabled)").forEach((button) => button.addEventListener("click", () => {
     catalogState.page = Number(button.dataset.page);
     loadCatalog();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
   }));
 }
 
@@ -287,8 +373,6 @@ async function openDocument(docId) {
     const response = await fetch(`/v1/documents/${encodeURIComponent(docId)}`);
     const item = await response.json();
     if (!response.ok) throw new Error(item.detail || "Document could not be loaded.");
-    document.querySelectorAll(".view-panel").forEach((panel) => panel.classList.add("hidden"));
-    $("#document-view").classList.remove("hidden");
     $("#document-detail").innerHTML = `
       <span class="catalog-type">${escapeHtml(item.document_type.replaceAll("_", " "))}</span>
       <h1>${escapeHtml(item.title)}</h1>
@@ -305,6 +389,7 @@ async function openDocument(docId) {
     $("#document-detail").querySelectorAll("[data-related-doc]").forEach((button) =>
       button.addEventListener("click", () => openDocument(button.dataset.relatedDoc))
     );
+    transitionTo($("#document-view"));
   } catch (error) {
     toast(error.message);
   }
@@ -334,14 +419,12 @@ $("#new-chat").addEventListener("click", () => {
   activeSessionId = session.id;
   saveSessions();
   query.value = "";
-  showView("chat");
   restoreSession();
-  query.focus();
+  showView("chat").then(() => query.focus());
 });
 document.querySelectorAll("header [data-view]").forEach((item) => item.addEventListener("click", () => showView(item.dataset.view)));
 $("#document-back").addEventListener("click", () => {
-  $("#document-view").classList.add("hidden");
-  $("#catalog-view").classList.remove("hidden");
+  transitionTo($("#catalog-view"));
 });
 let catalogSearchTimer;
 $("#catalog-search").addEventListener("input", () => {

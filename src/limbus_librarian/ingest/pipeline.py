@@ -45,6 +45,11 @@ def ingest_connector(
     completed = set(state.get("completed_page_ids", [])) & set(existing)
     # Skipped non-lore pages have no document row, so preserve their completed state too.
     completed.update(state.get("skipped_page_ids", []))
+    skipped_documents = {
+        int(item["page_id"]): item
+        for item in state.get("skipped_documents", [])
+        if "page_id" in item
+    }
     listings = state["listings"]
     pending = [item for item in listings if item["page_id"] not in completed]
     batch_size = max(1, batch_size)
@@ -66,11 +71,20 @@ def ingest_connector(
             doc = raw_to_document(page, corpus_version)
             if lore_first and not is_lore_first(doc.document_type):
                 skipped.add(page.page_id)
+                skipped_documents[page.page_id] = {
+                    "page_id": page.page_id,
+                    "title": doc.title,
+                    "document_type": doc.document_type,
+                    "categories": doc.categories,
+                }
                 continue
             existing[doc.page_id] = doc
             completed.add(doc.page_id)
         state["completed_page_ids"] = sorted(completed)
         state["skipped_page_ids"] = sorted(skipped)
+        state["skipped_documents"] = [
+            skipped_documents[page_id] for page_id in sorted(skipped_documents)
+        ]
         state["status"] = "in_progress"
         docs = sorted(existing.values(), key=lambda doc: (doc.title, doc.page_id))
         _write_documents(documents_path, docs)

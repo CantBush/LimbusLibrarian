@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     generate_model: str = "gpt-5.6-terra"
     utility_model: str = "gpt-5.6-luna"
-    default_config: str = "hybrid"
+    default_config: str = "vector_only"
     cors_origins: str = "http://localhost:5173"
     user_agent: str = "LimbusLibrarian/0.1 (fan research tool; contact: local-dev)"
     openai_api_key: str = Field(

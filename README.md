@@ -50,7 +50,9 @@ python -m limbus_librarian.cli serve --host 0.0.0.0 --port 8080
 
 Retrieval setups are YAML configs you can swap without code changes:
 `bm25_only`, `vector_only`, `hybrid`, `hybrid_rerank`, `hybrid_rerank_refine`,
-and `hybrid_graph`.
+`hybrid_rerank_cross_encoder`, and `hybrid_graph`. `rerank_backend` is explicitly
+`none`, `lexical`, or `cross_encoder`; the cross-encoder and its optional dependency
+are loaded only when that backend is selected.
 
 Without `OPENAI_API_KEY`, embeddings are deterministic hashed vectors and answers
 are assembled from retrieved snippets (enough for tests and local demos). With a
@@ -123,6 +125,10 @@ the legacy Vite experiment under `apps/web` are not used by the prototype.
 python -m limbus_librarian.cli search "What is the League of Nine?" --config hybrid
 python -m limbus_librarian.cli eval --gold wiki_v1 --config hybrid
 python -m limbus_librarian.cli eval --gold wiki_v1 --compare
+# Explicit model gates (never run by normal asks/tests):
+python -m pip install -e ".[rerank]"
+python -m limbus_librarian.cli eval --gold wiki_v1 --rerank-compare
+python -m limbus_librarian.cli eval --gold wiki_v1 --luna-experiment --experiment-limit 6
 ```
 
 The comparison command evaluates `bm25_only`, `vector_only`, `hybrid`,
@@ -133,3 +139,30 @@ both. Title labels are resolved against the locally ingested document catalog.
 Until the first live ingest has populated that catalog, `wiki_v1` labels are
 reported as unresolved and excluded from metric averages; the evaluator never
 invents wiki page IDs. The legacy fixture set remains available as `--gold v1`.
+
+### Current retrieval decision
+
+The local `wiki_v1` run (36 evaluable questions at K=8) makes `vector_only` the
+evidence-backed default: Recall 0.875, MRR 0.766, and nDCG 0.790. Hybrid scored
+0.852 / 0.713 / 0.741, while lexical hybrid reranking fell to
+0.792 / 0.683 / 0.687. Lexical reranking therefore remains available but off by
+default. The BAAI cross-encoder scored Recall 0.880 / MRR 0.819 / nDCG 0.815,
+beating `vector_only` by 0.005 / 0.053 / 0.025 and lexical reranking by
+0.088 / 0.137 / 0.128. However, the cold CPU comparison took 999.512 seconds
+and requires the large optional Torch/model install. That latency is unsuitable
+for default interactive asks, so `vector_only` remains the default and the
+cross-encoder remains an explicit quality-over-latency option. Exact results are
+in `data/eval/runs/wiki_v1.rerank_comparison.json`.
+
+The Luna gate is also opt-in. It makes at most `--experiment-limit` structured
+utility-model calls (maximum 8) on an empty-retrieval/relationship slice, using
+`OPENAI_API_KEY` only when configured. It compares deterministic refinement with
+the model rewrite/relevance result and writes
+`data/eval/runs/wiki_v1.luna_experiment.json`; without a key it records
+`not_executed`. Normal asks, offline eval, and tests never call Luna. Eval outputs
+under `data/eval/runs/` are local ignored artifacts.
+
+On the bounded six-question relationship slice, Luna rewrite/relevance improved
+the heuristic arm from Recall 0.694 / MRR 0.389 / nDCG 0.484 to
+0.778 / 0.583 / 0.602. This is promising but too small and model-dependent to
+replace deterministic defaults, so Luna remains an explicitly invoked experiment.

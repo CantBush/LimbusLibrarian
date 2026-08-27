@@ -150,15 +150,15 @@ class GraphStore:
     def query_entities(self, query: str, limit: int = 4) -> list[str]:
         if not self.path.exists() or limit <= 0:
             return []
+        exact_mentions = [title for title, _entity_type in self.match_entities(query, limit)]
+        if exact_mentions:
+            return exact_mentions
         query_key = _key(query)
         query_words = set(_WORDS.findall(query_key))
         with sqlite3.connect(self.path) as connection:
             rows = connection.execute(
                 "SELECT title FROM entities ORDER BY length(title) DESC, title COLLATE NOCASE"
             ).fetchall()
-        exact_mentions = [str(row[0]) for row in rows if _key(str(row[0])) in query_key]
-        if exact_mentions:
-            return exact_mentions[:limit]
         scored: list[tuple[int, int, str]] = []
         for row in rows:
             title = str(row[0])
@@ -168,6 +168,34 @@ class GraphStore:
                 scored.append((overlap, len(words), title))
         scored.sort(key=lambda item: (-item[0], -item[1], _key(item[2])))
         return [item[2] for item in scored[:limit]]
+
+    def match_entities(self, query: str, limit: int = 4) -> list[tuple[str, str]]:
+        """Return non-overlapping catalog titles explicitly mentioned in a query."""
+        if not self.path.exists() or limit <= 0:
+            return []
+        with sqlite3.connect(self.path) as connection:
+            rows = connection.execute(
+                """
+                SELECT title, type
+                FROM entities
+                ORDER BY length(title) DESC, title COLLATE NOCASE
+                """
+            ).fetchall()
+
+        occupied: list[tuple[int, int]] = []
+        matches: list[tuple[int, str, str]] = []
+        for raw_title, raw_type in rows:
+            title = str(raw_title)
+            pattern = re.escape(title).replace(r"\ ", r"\s+")
+            for mention in re.finditer(rf"(?<!\w){pattern}(?!\w)", query, re.IGNORECASE):
+                span = mention.span()
+                if any(span[0] < end and start < span[1] for start, end in occupied):
+                    continue
+                occupied.append(span)
+                matches.append((span[0], title, str(raw_type)))
+                break
+        matches.sort(key=lambda item: (item[0], _key(item[1])))
+        return [(title, entity_type) for _, title, entity_type in matches[:limit]]
 
     def neighbor_doc_ids(self, titles: list[str], limit: int = 8) -> list[str]:
         if not self.path.exists() or not titles or limit <= 0:
@@ -213,8 +241,9 @@ class GraphRetriever:
         k: int,
         filters: dict | None = None,
         max_neighbors: int | None = None,
+        entity_titles: list[str] | None = None,
     ) -> list[RetrievalHit]:
-        titles = self.store.query_entities(query)
+        titles = entity_titles or self.store.query_entities(query)
         doc_ids = self.store.neighbor_doc_ids(
             titles,
             self.max_neighbors if max_neighbors is None else max_neighbors,

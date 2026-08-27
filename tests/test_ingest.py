@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,15 @@ def test_ingest_resume_skips_completed_batches(tmp_path: Path):
     assert resumed.list_calls == 0
     assert all(first_batch.isdisjoint(call) for call in resumed.calls)
     assert {doc.title for doc in docs} >= {"Dongrang", "Yi Sang", "Canto IV"}
+    saved_state = json.loads(state.read_text(encoding="utf-8"))
+    assert saved_state["skipped_documents"] == [
+        {
+            "page_id": 106,
+            "title": "Seven Assoc. South Section 6 Yi Sang",
+            "document_type": "identity",
+            "categories": ["Identities", "Yi Sang Identities"],
+        }
+    ]
 
 
 def test_incremental_ingest_fetches_changed_and_removes_deleted(tmp_path: Path):

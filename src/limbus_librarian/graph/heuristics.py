@@ -1,22 +1,29 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
-from limbus_librarian.models import QueryAnalysis
+from limbus_librarian.models import DocumentType, QueryAnalysis
 
-_ENTITY = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b")
-KNOWN = [
-    "Dongrang",
-    "Yi Sang",
-    "League of Nine",
-    "The Mirror",
-    "Mirror",
-    "Canto IV",
-    "K Corp",
-]
+_DOCUMENT_TYPES = {
+    "story_transcript",
+    "character",
+    "sinner",
+    "abnormality",
+    "faction",
+    "location",
+    "world",
+    "event",
+    "identity",
+    "ego",
+    "other",
+}
 
 
-def analyze_query(query: str) -> QueryAnalysis:
+def analyze_query(
+    query: str,
+    entity_matches: Iterable[tuple[str, str]] = (),
+) -> QueryAnalysis:
     q = query.lower()
     if any(w in q for w in ("connect", "relationship", "related", "between")):
         qtype = "relationship"
@@ -31,11 +38,10 @@ def analyze_query(query: str) -> QueryAnalysis:
     else:
         qtype = "other"
 
-    entities = [name for name in KNOWN if name.lower() in q]
-    if not entities:
-        entities = [m.group(1) for m in _ENTITY.finditer(query) if m.group(1) not in {"Who", "What", "How", "Where", "Explain"}]
+    matches = list(entity_matches)
+    entities = [title for title, _document_type in matches]
 
-    types: list = []
+    types: list[DocumentType] = []
     if qtype == "who":
         types = ["character", "sinner", "faction"]
     elif qtype == "event":
@@ -44,6 +50,13 @@ def analyze_query(query: str) -> QueryAnalysis:
         types = ["character", "sinner", "faction", "story_transcript"]
     elif "mirror" in q:
         types = ["world", "character", "sinner"]
+    for _title, document_type in matches:
+        if (
+            document_type in _DOCUMENT_TYPES
+            and document_type != "other"
+            and document_type not in types
+        ):
+            types.append(document_type)  # type: ignore[arg-type]
 
     cantos = []
     if "canto iv" in q or "canto 4" in q:
@@ -52,7 +65,7 @@ def analyze_query(query: str) -> QueryAnalysis:
     return QueryAnalysis(
         question_type=qtype,  # type: ignore[arg-type]
         entities=entities,
-        document_types=types,  # type: ignore[arg-type]
+        document_types=types,
         cantos=cantos,
         rewritten_query=query,
     )

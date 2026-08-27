@@ -37,11 +37,15 @@ def classify_document(title: str, categories: list[str]) -> DocumentType:
     cats = {c.lower() for c in categories}
     title_l = title.lower()
 
-    if any("identit" in c for c in cats) or title_l.endswith("/identity"):
+    if (
+        any("identit" in c for c in cats)
+        or title_l.endswith(("/identity", "/identity story"))
+    ):
         return "identity"
-    if "e.g.o" in title_l or any("e.g.o" in c or "ego" == c for c in cats):
-        if "abnormality" not in cats:
-            return "ego"
+    if (
+        "e.g.o" in title_l or any("e.g.o" in c or "ego" == c for c in cats)
+    ) and "abnormality" not in cats:
+        return "ego"
     if any("sinner" in c for c in cats) or title_l in _SINNERS:
         return "sinner"
     if any("abnormality" in c for c in cats):
@@ -71,7 +75,11 @@ def is_lore_first(document_type: DocumentType) -> bool:
 
 def detect_cantos(title: str, categories: list[str], text: str) -> list[str]:
     blob = " ".join([title, *categories, text[:2000]])
-    found = re.findall(r"Canto\s+(IV|V|VI|VII|VIII|IX|III|II|I|\d+)", blob, flags=re.I)
+    found = re.findall(
+        r"Canto\s+(IV|V|VI|VII|VIII|IX|III|II|I|\d+)",
+        blob,
+        flags=re.IGNORECASE,
+    )
     roman = {"I": "I", "II": "II", "III": "III", "IV": "IV", "V": "V", "VI": "VI"}
     out: list[str] = []
     for match in found:

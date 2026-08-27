@@ -39,7 +39,17 @@ class GraphState(TypedDict, total=False):
 
 def build_ask_graph(searcher: HybridSearcher):
     def analyze_node(state: GraphState) -> dict[str, Any]:
-        analysis = analyze_query(state["query"])
+        entity_matches = (
+            searcher.graph.store.match_entities(state["query"])
+            if searcher.graph is not None
+            else []
+        )
+        analysis = analyze_query(state["query"], entity_matches)
+        filters = dict(state.get("filters") or {})
+        if not filters.get("document_types") and analysis.document_types:
+            filters["document_types"] = list(analysis.document_types)
+        if not filters.get("cantos") and analysis.cantos:
+            filters["cantos"] = list(analysis.cantos)
         trace = state.get("trace") or AskTrace(
             query=state["query"], config_id=state["config"].id
         )
@@ -47,6 +57,7 @@ def build_ask_graph(searcher: HybridSearcher):
         trace.steps.append(TraceStep(name="analyze_query", detail=analysis.model_dump()))
         return {
             "working_query": analysis.rewritten_query or state["query"],
+            "filters": filters,
             "trace": trace,
         }
 
@@ -56,6 +67,11 @@ def build_ask_graph(searcher: HybridSearcher):
             state["working_query"],
             cfg,
             filters=state.get("filters"),
+            entity_titles=(
+                list(state["trace"].analysis.entities)
+                if state["trace"].analysis is not None
+                else None
+            ),
         )
         trace = state["trace"]
         hop = state.get("hops", 0)
@@ -115,7 +131,7 @@ def build_ask_graph(searcher: HybridSearcher):
         analysis = state["trace"].analysis or analyze_query(state["query"])
         refined = refine_query(state["working_query"], analysis)
         if refined == state["working_query"]:
-            refined = f"{state['query']} League of Nine Yi Sang Dongrang"
+            refined = f"{state['query']} background history"
         trace = state["trace"]
         hops = state.get("hops", 0) + 1
         trace.hops = hops

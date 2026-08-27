@@ -30,7 +30,7 @@ def lexical_rerank(query: str, hits: list[RetrievalHit]) -> list[RetrievalHit]:
 
 
 class CrossEncoderReranker:
-    """Optional sentence-transformers cross-encoder. Falls back to lexical overlap."""
+    """Optional sentence-transformers cross-encoder, loaded on first use."""
 
     def __init__(self, model_name: str = "BAAI/bge-reranker-v2-m3") -> None:
         self.model_name = model_name
@@ -38,17 +38,19 @@ class CrossEncoderReranker:
 
     def _load(self):
         if self._model is None:
-            from sentence_transformers import CrossEncoder
+            try:
+                from sentence_transformers import CrossEncoder
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Cross-encoder reranking requires `pip install -e \".[rerank]\"`."
+                ) from exc
 
             self._model = CrossEncoder(self.model_name)
         return self._model
 
     def rerank(self, query: str, hits: list[RetrievalHit]) -> list[RetrievalHit]:
-        try:
-            model = self._load()
-        except Exception:
-            return lexical_rerank(query, hits)
-        pairs = [(query, hit.text) for hit in hits]
+        model = self._load()
+        pairs = [(query, f"{hit.title}\n{hit.text}") for hit in hits]
         scores = model.predict(pairs)
         updated: list[RetrievalHit] = []
         for hit, score in zip(hits, scores, strict=False):
@@ -59,4 +61,5 @@ class CrossEncoderReranker:
         updated.sort(key=lambda h: h.score, reverse=True)
         for i, hit in enumerate(updated, start=1):
             hit.rank = i
+            hit.retriever_name = f"{hit.retriever_name}+cross_encoder"
         return updated

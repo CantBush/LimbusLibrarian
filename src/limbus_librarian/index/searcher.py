@@ -5,7 +5,7 @@ from limbus_librarian.index.bm25 import BM25Retriever
 from limbus_librarian.index.dense import NumpyDenseRetriever, QdrantDenseRetriever
 from limbus_librarian.index.hybrid import reciprocal_rank_fusion
 from limbus_librarian.models import RetrievalConfig, RetrievalHit
-from limbus_librarian.rerank.lexical import lexical_rerank
+from limbus_librarian.rerank.lexical import CrossEncoderReranker, lexical_rerank
 
 
 class HybridSearcher:
@@ -20,12 +20,28 @@ class HybridSearcher:
         self.dense = dense
         self.graph = graph
         self.rerank = rerank
+        self._cross_encoder_reranker: CrossEncoderReranker | None = None
+
+    def _rerank(
+        self,
+        backend: str,
+        query: str,
+        hits: list[RetrievalHit],
+    ) -> list[RetrievalHit]:
+        if backend == "lexical":
+            return lexical_rerank(query, hits)
+        if backend == "cross_encoder":
+            if self._cross_encoder_reranker is None:
+                self._cross_encoder_reranker = CrossEncoderReranker()
+            return self._cross_encoder_reranker.rerank(query, hits)
+        return hits
 
     def search(
         self,
         query: str,
         config: RetrievalConfig,
         filters: dict | None = None,
+        entity_titles: list[str] | None = None,
     ) -> list[RetrievalHit]:
         lists: list[list[RetrievalHit]] = []
         if config.use_bm25 and self.bm25 and config.k_bm25 > 0:
@@ -39,6 +55,7 @@ class HybridSearcher:
                     config.k_graph,
                     filters,
                     max_neighbors=config.graph_max_neighbors,
+                    entity_titles=entity_titles,
                 )
             )
         if not lists:
@@ -49,6 +66,7 @@ class HybridSearcher:
                 hit.rank = i
         else:
             fused = reciprocal_rank_fusion(lists, k=config.rrf_k, limit=config.k_fused)
-        if config.use_rerank and self.rerank:
-            fused = lexical_rerank(query, fused)
+        backend = config.effective_rerank_backend
+        if backend != "none":
+            fused = self._rerank(backend, query, fused)
         return fused[: config.k_final]
