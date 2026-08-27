@@ -21,6 +21,7 @@ class HybridSearcher:
         self.graph = graph
         self.rerank = rerank
         self._cross_encoder_reranker: CrossEncoderReranker | None = None
+        self._ask_graph = None
 
     def _rerank(
         self,

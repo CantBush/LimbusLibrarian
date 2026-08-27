@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
@@ -136,6 +137,7 @@ def evaluate_retrieval(
         if not resolved.relevant_doc_ids:
             row = {
                 "id": item.id,
+                "question_type": item.question_type,
                 "status": resolved.status,
                 "unresolved_doc_ids": resolved.unresolved_doc_ids,
                 "unresolved_titles": resolved.unresolved_titles,
@@ -158,6 +160,7 @@ def evaluate_retrieval(
         rows.append(
             {
                 "id": item.id,
+                "question_type": item.question_type,
                 "status": resolved.status,
                 "recall@k": r,
                 "mrr": m,
@@ -177,10 +180,34 @@ def evaluate_retrieval(
         "recall@k": sum(recs) / len(recs) if recs else 0.0,
         "mrr": sum(mrrs) / len(mrrs) if mrrs else 0.0,
         "ndcg@k": sum(ndcgs) / len(ndcgs) if ndcgs else 0.0,
+        "by_question_type": _metrics_by_question_type(rows),
         "unresolved_labels": unresolved_items,
         "rows": rows,
     }
     return summary
+
+
+def _metrics_by_question_type(rows: list[dict]) -> dict[str, dict]:
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row.get("question_type") or "other")].append(row)
+    by_type: dict[str, dict] = {}
+    for question_type, type_rows in sorted(grouped.items()):
+        evaluated = [row for row in type_rows if "ndcg@k" in row]
+        by_type[question_type] = {
+            "n": len(type_rows),
+            "n_evaluated": len(evaluated),
+            "n_unresolved": sum(row.get("status") == "unresolved" for row in type_rows),
+            "n_partial": sum(row.get("status") == "partial" for row in type_rows),
+            "recall@k": (
+                sum(row["recall@k"] for row in evaluated) / len(evaluated) if evaluated else 0.0
+            ),
+            "mrr": sum(row["mrr"] for row in evaluated) / len(evaluated) if evaluated else 0.0,
+            "ndcg@k": (
+                sum(row["ndcg@k"] for row in evaluated) / len(evaluated) if evaluated else 0.0
+            ),
+        }
+    return by_type
 
 
 def write_eval_report(path: Path, summary: dict) -> None:

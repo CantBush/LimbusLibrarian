@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
+from limbus_librarian.ingest.classify import detect_cantos
 from limbus_librarian.models import DocumentType, QueryAnalysis
 
 _DOCUMENT_TYPES = {
@@ -58,9 +59,7 @@ def analyze_query(
         ):
             types.append(document_type)  # type: ignore[arg-type]
 
-    cantos = []
-    if "canto iv" in q or "canto 4" in q:
-        cantos = ["Canto IV"]
+    cantos = detect_cantos(query, [], "")
 
     return QueryAnalysis(
         question_type=qtype,  # type: ignore[arg-type]

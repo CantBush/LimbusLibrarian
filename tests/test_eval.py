@@ -91,6 +91,8 @@ def test_metrics_use_resolved_title_doc_id():
     assert summary["mrr"] == 1.0
     assert summary["ndcg@k"] == 1.0
     assert ndcg_at_k({"a", "b"}, ["a", "x"], 2) < 1.0
+    assert summary["by_question_type"]["what"]["n_evaluated"] == 1
+    assert summary["by_question_type"]["what"]["ndcg@k"] == 1.0
 
 
 def test_wiki_gold_has_curated_phase_three_coverage():
@@ -144,6 +146,7 @@ def test_comparison_cli_skips_index_loading_when_all_labels_unresolved(
 
     output = capsys.readouterr().out
     assert all(config_id in output for config_id in cli.COMPARISON_CONFIGS)
+    assert "who" in output
     assert "no wiki IDs were fabricated" in output
     report = json.loads(
         (tmp_path / "data" / "eval" / "runs" / "wiki_v1.comparison.json").read_text()

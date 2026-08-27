@@ -67,6 +67,9 @@ python -m limbus_librarian.cli ask "Who is Dongrang?"
 python -m pytest -q
 ```
 
+CI runs the same fixture pytest suite on Python 3.12 (`pip install -e ".[dev]"`);
+it does not contact wiki.gg, OpenAI, or install the optional `[rerank]` extra.
+
 ## Lore-first wiki ingest
 
 The optional live ingest uses MediaWiki's Action API and configured lore category
@@ -107,9 +110,6 @@ honor the current policies before ingesting; this deliberately slow local fan-to
 path uses the Action API rather than an HTML scraper. Fixtures remain the only
 corpus used by tests and CI, and tests never contact wiki.gg.
 
-`docker compose up --build` is an optional API-only container path. Qdrant and
-the legacy Vite experiment under `apps/web` are not used by the prototype.
-
 ## API
 
 | Method | Path | Purpose |
@@ -129,16 +129,28 @@ python -m limbus_librarian.cli eval --gold wiki_v1 --compare
 python -m pip install -e ".[rerank]"
 python -m limbus_librarian.cli eval --gold wiki_v1 --rerank-compare
 python -m limbus_librarian.cli eval --gold wiki_v1 --luna-experiment --experiment-limit 6
+python -m limbus_librarian.cli eval --gold wiki_v1 --generation-eval --experiment-limit 20
 ```
 
 The comparison command evaluates `bm25_only`, `vector_only`, `hybrid`,
-`hybrid_rerank`, and `hybrid_graph`, prints a table, and writes JSON reports
-under `data/eval/runs/`.
+`hybrid_rerank`, and `hybrid_graph`, prints overall and per-`question_type`
+Recall/MRR/nDCG rows, and writes JSON reports under `data/eval/runs/`.
 Gold labels may use exact `relevant_doc_ids`, stable `relevant_doc_titles`, or
 both. Title labels are resolved against the locally ingested document catalog.
 Until the first live ingest has populated that catalog, `wiki_v1` labels are
 reported as unresolved and excluded from metric averages; the evaluator never
 invents wiki page IDs. The legacy fixture set remains available as `--gold v1`.
+
+After classifier changes that keep the Identity and E.G.O. overview pages,
+run `ingest-wiki --since` (or a targeted re-fetch) so those titles enter the
+local catalog. Combat Identity/E.G.O. pages stay skipped. Remaining unresolved
+`wiki_v1` titles in the current catalog are The Pallid Whale, Pequod, and
+Fixers (plus Identity / E.G.O. until that ingest lands). Partial items such as
+wiki-q21 still resolve Queequeg without fabricating a Pequod id.
+
+`limbus serve` does not use the Qdrant client or the legacy Vite app under
+`apps/web`. `docker compose up --build` is an optional API-only container path.
+Full deletion of those unused pieces can wait; they are not a prototype feature.
 
 ### Current retrieval decision
 
@@ -166,3 +178,25 @@ On the bounded six-question relationship slice, Luna rewrite/relevance improved
 the heuristic arm from Recall 0.694 / MRR 0.389 / nDCG 0.484 to
 0.778 / 0.583 / 0.602. This is promising but too small and model-dependent to
 replace deterministic defaults, so Luna remains an explicitly invoked experiment.
+
+`--compare` also prints per-`question_type` slices. On the local `wiki_v1`
+relationship slice (7 evaluable items, including partials), `hybrid_graph`
+beat `vector_only` on the primary metric: nDCG 0.691 vs 0.584 (MRR 0.786 vs
+0.500; Recall 0.738 vs 0.810). That nDCG margin is large enough to overlay
+graph retrieval for relationship questions when the loaded config is the
+default `vector_only` (same `k_graph` as `hybrid_graph.yaml`). Explicit UI/CLI
+`--config` values stay unchanged, and graph neighbors remain available on
+catalog related-pages for every type. `vector_only` remains the default recipe
+overall.
+
+Generation eval is a separate opt-in gate:
+`eval --gold wiki_v1 --generation-eval --experiment-limit 20`. It skips
+unresolved gold items, scores extractive-answer coverage of
+`expected_answer_points` with or without a key, and writes
+`data/eval/runs/wiki_v1.generation_eval.json`. A local extractive run on 20
+resolved questions scored coverage 0.000 (gold bullets are not verbatim in
+retrieved snippets). Faithfulness and citation-claim overlap use one bounded
+structured Luna call per selected question and require `OPENAI_API_KEY`;
+without a key the model arm is `not_executed` while extractive coverage is
+still recorded. The judge may only see retrieved chunk texts and cannot invent
+chunk IDs. Default generator, prompt, and hop limit are unchanged.

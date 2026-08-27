@@ -12,10 +12,15 @@ from limbus_librarian.models import (
     AskAnswer,
     AskTrace,
     Citation,
+    QueryAnalysis,
     RetrievalConfig,
     RetrievalHit,
     TraceStep,
 )
+
+RELATIONSHIP_GRAPH_OVERLAY = True
+_GRAPH_OVERLAY_K = 16
+_GRAPH_OVERLAY_NEIGHBORS = 8
 
 
 class GraphState(TypedDict, total=False):
@@ -37,6 +42,40 @@ class GraphState(TypedDict, total=False):
     history: list[str]
 
 
+def maybe_overlay_relationship_graph(
+    config: RetrievalConfig,
+    analysis: QueryAnalysis | None,
+    *,
+    enabled: bool | None = None,
+) -> RetrievalConfig:
+    """Add graph retrieval for relationship questions on the default vector_only recipe."""
+    if enabled is None:
+        enabled = RELATIONSHIP_GRAPH_OVERLAY
+    if (
+        not enabled
+        or analysis is None
+        or analysis.question_type != "relationship"
+        or config.id != "vector_only"
+        or config.use_graph
+    ):
+        return config
+    return config.model_copy(
+        update={
+            "use_graph": True,
+            "k_graph": _GRAPH_OVERLAY_K,
+            "graph_max_neighbors": _GRAPH_OVERLAY_NEIGHBORS,
+        }
+    )
+
+
+def compiled_ask_graph(searcher: HybridSearcher):
+    compiled = getattr(searcher, "_ask_graph", None)
+    if compiled is None:
+        compiled = build_ask_graph(searcher)
+        searcher._ask_graph = compiled
+    return compiled
+
+
 def build_ask_graph(searcher: HybridSearcher):
     def analyze_node(state: GraphState) -> dict[str, Any]:
         entity_matches = (
@@ -46,10 +85,6 @@ def build_ask_graph(searcher: HybridSearcher):
         )
         analysis = analyze_query(state["query"], entity_matches)
         filters = dict(state.get("filters") or {})
-        if not filters.get("document_types") and analysis.document_types:
-            filters["document_types"] = list(analysis.document_types)
-        if not filters.get("cantos") and analysis.cantos:
-            filters["cantos"] = list(analysis.cantos)
         trace = state.get("trace") or AskTrace(
             query=state["query"], config_id=state["config"].id
         )
@@ -62,14 +97,15 @@ def build_ask_graph(searcher: HybridSearcher):
         }
 
     def retrieve_node(state: GraphState) -> dict[str, Any]:
-        cfg = state["config"]
+        analysis = state["trace"].analysis if state.get("trace") is not None else None
+        cfg = maybe_overlay_relationship_graph(state["config"], analysis)
         hits = searcher.search(
             state["working_query"],
             cfg,
             filters=state.get("filters"),
             entity_titles=(
-                list(state["trace"].analysis.entities)
-                if state["trace"].analysis is not None
+                list(analysis.entities)
+                if analysis is not None
                 else None
             ),
         )
@@ -85,6 +121,7 @@ def build_ask_graph(searcher: HybridSearcher):
                     "n_hits": len(hits),
                     "chunk_ids": [h.chunk_id for h in hits],
                     "filters": state.get("filters") or {},
+                    "use_graph": cfg.use_graph,
                 },
             )
         )
@@ -223,7 +260,7 @@ def run_ask(
     filters: dict[str, Any] | None = None,
     history: list[str] | None = None,
 ) -> AskAnswer:
-    compiled = build_ask_graph(searcher)
+    compiled = compiled_ask_graph(searcher)
     result = compiled.invoke(
         {
             "query": query,

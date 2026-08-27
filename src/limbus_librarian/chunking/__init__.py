@@ -7,6 +7,7 @@ from limbus_librarian.models import Chunk, SourceDocument
 
 _HEADING = re.compile(r"^(=+)\s*(.+?)\s*\1\s*$", re.M)
 _MAX_CHARS = 1800
+_TINY_SECTION_CHARS = 40
 
 
 def _chunk_id(doc_id: str, revision_id: int, section_path: str, ordinal: int) -> str:
@@ -62,8 +63,18 @@ def chunk_document(doc: SourceDocument) -> list[Chunk]:
             sections.append((match.group(2).strip(), body))
 
     chunks: list[Chunk] = []
+    merged_sections: list[tuple[str, str]] = []
     for section_title, body in sections:
         cleaned = _strip_markup(body)
+        if not cleaned:
+            continue
+        if merged_sections and len(cleaned) < _TINY_SECTION_CHARS:
+            prev_title, prev_body = merged_sections[-1]
+            merged_sections[-1] = (prev_title, f"{prev_body}\n\n{cleaned}")
+        else:
+            merged_sections.append((section_title, cleaned))
+
+    for section_title, cleaned in merged_sections:
         pieces = _split_long(cleaned)
         path = section_title if section_title == doc.title else f"{doc.title}/{section_title}"
         for ordinal, piece in enumerate(pieces):
@@ -99,8 +110,19 @@ def chunk_documents(docs: list[SourceDocument]) -> list[Chunk]:
 
 
 def _strip_markup(text: str) -> str:
-    text = re.sub(r"\{\{[^}]+\}\}", "", text)
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    text = re.sub(r"<ref\b[^>]*>.*?</ref>", "", text, flags=re.I | re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\{\|.*?\|\}", " ", text, flags=re.S)
+    for _ in range(6):
+        updated = re.sub(r"\{\{[^{}]*\}\}", "", text, flags=re.S)
+        if updated == text:
+            break
+        text = updated
+    text = re.sub(r"\[\[(?:File|Image|Category):[^\]]*\]\]", "", text, flags=re.I)
     text = re.sub(r"\[\[([^\]|]+\|)?([^\]]+)\]\]", r"\2", text)
     text = re.sub(r"'{2,}", "", text)
+    text = re.sub(r"^\s*[|!].*$", "", text, flags=re.M)
+    text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()

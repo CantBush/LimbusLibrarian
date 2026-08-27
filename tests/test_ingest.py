@@ -3,15 +3,33 @@ from pathlib import Path
 
 import pytest
 
-from limbus_librarian.chunking import chunk_documents
-from limbus_librarian.ingest.classify import classify_document, is_lore_first
+from limbus_librarian.chunking import chunk_document, chunk_documents
+from limbus_librarian.ingest.classify import classify_document, detect_cantos, is_lore_first
 from limbus_librarian.ingest.pipeline import ingest_connector, ingest_incremental
+from limbus_librarian.models import SourceDocument
 from limbus_librarian.sources.fixture import FixtureSourceConnector
 
 
 def test_identity_pages_are_not_lore_first():
     assert classify_document("Seven Assoc. South Section 6 Yi Sang", ["Identities"]) == "identity"
+    assert classify_document("Yi Sang/Identity", ["Identities"]) == "identity"
     assert not is_lore_first("identity")
+
+
+def test_overview_identity_and_ego_titles_are_world():
+    assert classify_document("Identity", ["Identities"]) == "world"
+    assert classify_document("E.G.O.", ["E.G.O"]) == "world"
+    assert classify_document("E.G.O", []) == "world"
+    assert classify_document("EGO", []) == "world"
+    assert is_lore_first("world")
+
+
+def test_detect_cantos_normalizes_later_cantos_and_digits():
+    assert detect_cantos("Canto V: The Evil Defining", [], "") == ["Canto V"]
+    assert detect_cantos("Spoilers", [], "See Canto VIII and canto 4.") == [
+        "Canto VIII",
+        "Canto IV",
+    ]
 
 
 def test_fixture_ingest_skips_identity(tmp_path: Path):
@@ -28,6 +46,7 @@ def test_fixture_ingest_skips_identity(tmp_path: Path):
     assert "Canto IV" in titles
     assert "League of Nine" in titles
     assert "The Mirror" in titles
+    assert "Identity" in titles
     assert "Seven Assoc. South Section 6 Yi Sang" not in titles
     assert all(d.license for d in docs)
     chunks = chunk_documents(docs)
@@ -149,3 +168,34 @@ def test_incremental_ingest_fetches_changed_and_removes_deleted(tmp_path: Path):
     assert dongrang.doc_id in result.changed_doc_ids
     assert yi_sang.doc_id in result.deleted_doc_ids
     assert result.until == "2026-02-01T01:00:00Z"
+
+
+def test_chunking_merges_tiny_leftovers_and_strips_tables():
+    doc = SourceDocument(
+        doc_id="wiki:chunk-test",
+        source_id="fixture",
+        url="https://example.test/wiki/Test",
+        title="Test",
+        page_id=1,
+        revision_id=1,
+        document_type="world",
+        retrieved_at="2026-01-01T00:00:00Z",
+        raw_wikitext=(
+            "A long enough intro about the City and its Nests.\n\n"
+            "== Gallery ==\n"
+            "{| class=\"wikitable\"\n| a || b\n|}\n"
+            "[[File:Ignored.png|thumb]]\n"
+            "== Background ==\n"
+            "The Head enforces the City's laws across every Nest.\n"
+        ),
+    )
+
+    chunks = chunk_document(doc)
+    paths = [chunk.section_path for chunk in chunks]
+    assert "Test/Gallery" not in paths
+    combined = "\n".join(chunk.text for chunk in chunks)
+    assert "wikitable" not in combined
+    assert "class=" not in combined
+    assert "The Head enforces" in combined
+    again = chunk_document(doc)
+    assert [chunk.chunk_id for chunk in again] == [chunk.chunk_id for chunk in chunks]

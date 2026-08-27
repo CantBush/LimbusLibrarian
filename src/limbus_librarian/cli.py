@@ -13,7 +13,17 @@ from limbus_librarian.eval import (
     resolve_gold,
     write_eval_report,
 )
-from limbus_librarian.eval.model_gates import LunaStructuredRewriter, run_luna_experiment
+from limbus_librarian.eval.model_gates import (
+    GENERATION_EVAL_LIMIT_CAP,
+    GENERATION_EVAL_LIMIT_DEFAULT,
+    LUNA_LIMIT_CAP,
+    LUNA_LIMIT_DEFAULT,
+    LunaGenerationJudge,
+    LunaStructuredRewriter,
+    run_generation_eval,
+    run_luna_experiment,
+)
+from limbus_librarian.generate import generate_answer, heuristic_answer
 from limbus_librarian.graph import run_ask
 from limbus_librarian.ingest.pipeline import (
     incremental_since,
@@ -97,12 +107,23 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Explicitly run bounded Luna rewrite/relevance A/B (requires API key)",
     )
+    eval_modes.add_argument(
+        "--generation-eval",
+        action="store_true",
+        help="Score generated answers against gold expected_answer_points",
+    )
     eval_p.add_argument(
         "--experiment-limit",
         type=int,
-        choices=range(1, 9),
-        default=6,
-        help="Maximum Luna calls (1-8, default: 6)",
+        default=None,
+        metavar="N",
+        help=(
+            "Max Luna calls "
+            f"(1-{LUNA_LIMIT_CAP}, default: {LUNA_LIMIT_DEFAULT}) "
+            "or generation-eval questions "
+            f"(default: {GENERATION_EVAL_LIMIT_DEFAULT}, "
+            f"cap: {GENERATION_EVAL_LIMIT_CAP})"
+        ),
     )
     eval_p.add_argument("--k", type=int, default=8)
     serve_p = sub.add_parser("serve", help="Serve the API and local dashboard")
@@ -198,6 +219,13 @@ def main(argv: list[str] | None = None) -> None:
         resolved = resolve_gold(gold, load_documents(settings.documents_path))
         runs_dir = Path(settings.data_dir) / "eval" / "runs"
         if args.luna_experiment:
+            luna_limit = _bounded_limit(
+                parser,
+                args.experiment_limit,
+                default=LUNA_LIMIT_DEFAULT,
+                cap=LUNA_LIMIT_CAP,
+                flag="Luna --experiment-limit",
+            )
             out = runs_dir / f"{gold_path.stem}.luna_experiment.json"
             if not settings.openai_api_key.strip():
                 report = {
@@ -206,7 +234,7 @@ def main(argv: list[str] | None = None) -> None:
                     "gold_set": gold_path.stem,
                     "baseline_config": "vector_only",
                     "model": settings.utility_model,
-                    "limit": args.experiment_limit,
+                    "limit": luna_limit,
                 }
                 write_eval_report(out, report)
                 print("Luna experiment not executed: OPENAI_API_KEY is not configured.")
@@ -222,7 +250,7 @@ def main(argv: list[str] | None = None) -> None:
                 resolved,
                 lambda query: searcher.search(query, config),
                 rewriter,
-                limit=args.experiment_limit,
+                limit=luna_limit,
                 k=args.k,
             )
             report.update(
@@ -236,6 +264,74 @@ def main(argv: list[str] | None = None) -> None:
             write_eval_report(out, report)
             display_keys = ("status", "n", "heuristic", "luna_rewrite_and_grade")
             print(json.dumps({key: report[key] for key in display_keys}, indent=2))
+            print(f"Wrote {out}")
+            return
+        if args.generation_eval:
+            gen_limit = _bounded_limit(
+                parser,
+                args.experiment_limit,
+                default=GENERATION_EVAL_LIMIT_DEFAULT,
+                cap=GENERATION_EVAL_LIMIT_CAP,
+                flag="generation-eval --experiment-limit",
+            )
+            out = runs_dir / f"{gold_path.stem}.generation_eval.json"
+            has_evaluable_labels = any(item.relevant_doc_ids for item in resolved)
+            searcher = searcher_from_disk(settings) if has_evaluable_labels else None
+            config = load_named_config(settings.configs_dir, "vector_only")
+            model_fn = None
+            judge = None
+            if settings.openai_api_key.strip():
+                judge = LunaGenerationJudge(
+                    settings.openai_api_key,
+                    settings.utility_model,
+                )
+
+                def model_fn(query: str, hits: list) -> str:
+                    return generate_answer(
+                        query,
+                        hits,
+                        settings.generate_model,
+                        settings.openai_api_key,
+                    )
+            report = run_generation_eval(
+                resolved,
+                lambda query: searcher.search(query, config) if searcher else [],
+                limit=gen_limit,
+                extractive_fn=heuristic_answer,
+                model_fn=model_fn,
+                judge=judge,
+            )
+            report.update(
+                {
+                    "gold_set": gold_path.stem,
+                    "baseline_config": config.id,
+                    "utility_model": settings.utility_model,
+                    "generate_model": settings.generate_model,
+                    "k": args.k,
+                }
+            )
+            write_eval_report(out, report)
+            display = {
+                "n": report["n"],
+                "n_skipped_unresolved": report["n_skipped_unresolved"],
+                "extractive": report["extractive"],
+                "model": report["model"],
+            }
+            print(json.dumps(display, indent=2))
+            if report["model"]["status"] == "not_executed":
+                print(
+                    "Generation eval model arm not executed: "
+                    "OPENAI_API_KEY is not configured."
+                )
+            unresolved = _unresolved_items(resolved)
+            if unresolved:
+                print(
+                    f"Unresolved gold labels: {len(unresolved)} item(s). "
+                    "Run the live ingest, then rerun eval; no wiki IDs were fabricated."
+                )
+                for item in unresolved:
+                    labels = item.unresolved_doc_ids + item.unresolved_titles
+                    print(f"  {item.item.id}: {', '.join(labels)}")
             print(f"Wrote {out}")
             return
         if args.rerank_compare:
@@ -318,6 +414,20 @@ def _unresolved_items(items: list[ResolvedGoldItem]) -> list[ResolvedGoldItem]:
     return [item for item in items if item.unresolved_doc_ids or item.unresolved_titles]
 
 
+def _bounded_limit(
+    parser: argparse.ArgumentParser,
+    value: int | None,
+    *,
+    default: int,
+    cap: int,
+    flag: str,
+) -> int:
+    resolved = default if value is None else value
+    if resolved < 1:
+        parser.error(f"{flag} must be at least 1")
+    return min(resolved, cap)
+
+
 def build_comparison_report(gold_set: str, k: int, summaries: dict[str, dict]) -> dict:
     first_summary = next(iter(summaries.values()), {})
     return {
@@ -338,6 +448,7 @@ def build_comparison_report(gold_set: str, k: int, summaries: dict[str, dict]) -
                     "recall@k",
                     "mrr",
                     "ndcg@k",
+                    "by_question_type",
                 )
             }
             for summary in summaries.values()
@@ -361,6 +472,21 @@ def format_comparison_table(summaries: dict[str, dict]) -> str:
             f"{summary['mrr']:>8.3f} "
             f"{summary['ndcg@k']:>10.3f}"
         )
+    type_header = (
+        f"{'config':<18} {'type':<20} {'eval/total':>10} "
+        f"{'Recall@K':>10} {'MRR':>8} {'nDCG@K':>10}"
+    )
+    rows.extend(["", type_header, "-" * len(type_header)])
+    for config_id, summary in summaries.items():
+        for question_type, metrics in summary.get("by_question_type", {}).items():
+            rows.append(
+                f"{config_id:<18} "
+                f"{question_type:<20} "
+                f"{metrics['n_evaluated']:>4}/{metrics['n']:<5} "
+                f"{metrics['recall@k']:>10.3f} "
+                f"{metrics['mrr']:>8.3f} "
+                f"{metrics['ndcg@k']:>10.3f}"
+            )
     return "\n".join(rows)
 
 

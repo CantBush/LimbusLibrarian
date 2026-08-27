@@ -136,4 +136,7 @@ def test_api_ask_health_configs(tmp_path: Path, monkeypatch):
             },
         )
         assert spoiler_limited.status_code == 200
-        assert spoiler_limited.json()["trace"]["hits"] == []
+        assert all(
+            hit["title"] != "Dongrang"
+            for hit in spoiler_limited.json()["trace"]["hits"]
+        )

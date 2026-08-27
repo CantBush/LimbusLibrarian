@@ -4,7 +4,12 @@ from pathlib import Path
 from limbus_librarian.config import Settings
 from limbus_librarian.config_loader import load_named_config
 from limbus_librarian.eval import evaluate_retrieval, load_gold
-from limbus_librarian.graph import build_ask_graph, run_ask
+from limbus_librarian.graph import (
+    RELATIONSHIP_GRAPH_OVERLAY,
+    build_ask_graph,
+    maybe_overlay_relationship_graph,
+    run_ask,
+)
 from limbus_librarian.graph.heuristics import analyze_query
 from limbus_librarian.graph.store import GraphStore
 from limbus_librarian.ingest.pipeline import load_documents
@@ -71,8 +76,15 @@ def test_search_and_eval_and_graph(tmp_path: Path, monkeypatch):
     assert answer.trace.analysis is not None
     assert answer.trace.analysis.entities == ["Dongrang"]
     assert "character" in answer.trace.analysis.document_types
+    retrieve = next(step for step in answer.trace.steps if step.name == "retrieve")
+    assert not retrieve.detail["filters"].get("document_types")
+    assert not retrieve.detail["filters"].get("cantos")
     step_names = [s.name for s in answer.trace.steps]
     assert "retrieve" in step_names
+    compiled_once = searcher._ask_graph
+    again = run_ask("Who is Yi Sang?", searcher, cfg, api_key="")
+    assert "Yi Sang" in again.answer
+    assert searcher._ask_graph is compiled_once
 
     league_answer = run_ask(
         "What was the League of Nine?",
@@ -85,6 +97,21 @@ def test_search_and_eval_and_graph(tmp_path: Path, monkeypatch):
     assert league_answer.trace.analysis is not None
     assert league_answer.trace.analysis.entities == ["League of Nine"]
     assert "faction" in league_answer.trace.analysis.document_types
+
+    canto_answer = run_ask(
+        "What happened during Canto IV?",
+        searcher,
+        cfg,
+        api_key="",
+        debug=True,
+    )
+    assert canto_answer.trace is not None
+    assert canto_answer.trace.analysis is not None
+    assert "Canto IV" in canto_answer.trace.analysis.cantos
+    canto_retrieve = next(
+        step for step in canto_answer.trace.steps if step.name == "retrieve"
+    )
+    assert not canto_retrieve.detail["filters"].get("cantos")
 
     compiled = build_ask_graph(searcher)
     result = compiled.invoke(
@@ -130,6 +157,11 @@ def test_sqlite_graph_related_pages_and_third_rrf_list(tmp_path: Path, monkeypat
     assert unmatched.entities == []
     assert unmatched.document_types == []
 
+    canto_v = analyze_query("What happens in Canto V?")
+    assert canto_v.cantos == ["Canto V"]
+    canto_8 = analyze_query("Spoilers for Canto VIII")
+    assert canto_8.cantos == ["Canto VIII"]
+
     related = store.related(yi_sang.doc_id)
     assert {item["title"] for item in related} >= {"Dongrang", "League of Nine", "The Mirror"}
 
@@ -150,6 +182,78 @@ def test_sqlite_graph_related_pages_and_third_rrf_list(tmp_path: Path, monkeypat
     assert hits
     assert any("graph" in hit.score_components for hit in hits)
     assert any(hit.title in {"Dongrang", "League of Nine", "Yi Sang"} for hit in hits)
+
+
+def test_relationship_overlay_is_gated_to_default_vector_only():
+    assert RELATIONSHIP_GRAPH_OVERLAY is True
+    relationship = analyze_query("How are Yi Sang and Dongrang connected?")
+    who = analyze_query("Who is Dongrang?")
+    vector = load_named_config(Path(__file__).resolve().parents[1] / "configs", "vector_only")
+    hybrid = load_named_config(Path(__file__).resolve().parents[1] / "configs", "hybrid")
+    bm25 = load_named_config(Path(__file__).resolve().parents[1] / "configs", "bm25_only")
+
+    overlaid = maybe_overlay_relationship_graph(vector, relationship, enabled=True)
+    assert overlaid.use_graph is True
+    assert overlaid.k_graph == 16
+    assert overlaid.graph_max_neighbors == 8
+    assert vector.use_graph is False
+
+    assert maybe_overlay_relationship_graph(vector, who, enabled=True).use_graph is False
+    assert maybe_overlay_relationship_graph(hybrid, relationship, enabled=True).use_graph is False
+    assert maybe_overlay_relationship_graph(bm25, relationship, enabled=True).use_graph is False
+    assert maybe_overlay_relationship_graph(vector, relationship, enabled=False).use_graph is False
+
+
+def test_relationship_overlay_runs_on_vector_only_ask(tmp_path: Path, monkeypatch):
+    root = Path(__file__).resolve().parents[1]
+    settings = Settings(data_dir=tmp_path, embedding_dims=32, openai_api_key="")
+    monkeypatch.setattr(
+        type(settings),
+        "fixtures_dir",
+        property(lambda self: root / "data" / "fixtures"),
+    )
+    monkeypatch.setattr(
+        type(settings),
+        "configs_dir",
+        property(lambda self: root / "configs"),
+    )
+    searcher = bootstrap_from_fixtures(settings)
+    vector = load_named_config(settings.configs_dir, "vector_only")
+    bm25 = load_named_config(settings.configs_dir, "bm25_only")
+
+    related = run_ask(
+        "How are Yi Sang and Dongrang connected?",
+        searcher,
+        vector,
+        api_key="",
+        debug=True,
+    )
+    assert related.trace is not None
+    retrieve = next(step for step in related.trace.steps if step.name == "retrieve")
+    assert retrieve.detail["use_graph"] is True
+    assert any(
+        "graph" in hit.score_components or hit.retriever_name == "graph"
+        for hit in related.trace.hits
+    )
+
+    who = run_ask("Who is Dongrang?", searcher, vector, api_key="", debug=True)
+    assert who.trace is not None
+    who_retrieve = next(step for step in who.trace.steps if step.name == "retrieve")
+    assert who_retrieve.detail["use_graph"] is False
+    assert not who_retrieve.detail["filters"].get("document_types")
+
+    explicit = run_ask(
+        "How are Yi Sang and Dongrang connected?",
+        searcher,
+        bm25,
+        api_key="",
+        debug=True,
+    )
+    assert explicit.trace is not None
+    explicit_retrieve = next(
+        step for step in explicit.trace.steps if step.name == "retrieve"
+    )
+    assert explicit_retrieve.detail["use_graph"] is False
 
 
 def test_rebuild_deduplicates_case_variant_edges(tmp_path: Path):

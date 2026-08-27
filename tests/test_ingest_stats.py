@@ -55,7 +55,7 @@ def test_ingest_stats_handles_legacy_state_without_network():
         {
             "listings": [
                 {"page_id": 2, "title": "Seven Yi Sang/Identity Story"},
-                {"page_id": 3, "title": "E.G.O"},
+                {"page_id": 3, "title": "Crow's Eye View E.G.O"},
                 {"page_id": 4, "title": "Unknown Enemy"},
             ],
             "skipped_page_ids": [2, 3, 4],

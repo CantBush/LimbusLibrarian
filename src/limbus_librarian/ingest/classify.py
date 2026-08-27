@@ -17,6 +17,7 @@ LORE_TYPES: frozenset[str] = frozenset(
     }
 )
 
+_OVERVIEW_WORLD_TITLES = frozenset({"identity", "e.g.o.", "e.g.o", "ego"})
 _SINNERS = {
     "yi sang",
     "faust",
@@ -35,8 +36,10 @@ _SINNERS = {
 
 def classify_document(title: str, categories: list[str]) -> DocumentType:
     cats = {c.lower() for c in categories}
-    title_l = title.lower()
+    title_l = title.strip().lower()
 
+    if title_l in _OVERVIEW_WORLD_TITLES:
+        return "world"
     if (
         any("identit" in c for c in cats)
         or title_l.endswith(("/identity", "/identity story"))
@@ -73,18 +76,32 @@ def is_lore_first(document_type: DocumentType) -> bool:
     return document_type in LORE_TYPES
 
 
+_CANTO_TOKEN = re.compile(
+    r"Canto\s+(VIII|VII|III|II|IV|IX|VI|X|V|I|\d+)",
+    flags=re.IGNORECASE,
+)
+_INT_TO_ROMAN = {
+    1: "I",
+    2: "II",
+    3: "III",
+    4: "IV",
+    5: "V",
+    6: "VI",
+    7: "VII",
+    8: "VIII",
+    9: "IX",
+    10: "X",
+}
+
+
 def detect_cantos(title: str, categories: list[str], text: str) -> list[str]:
     blob = " ".join([title, *categories, text[:2000]])
-    found = re.findall(
-        r"Canto\s+(IV|V|VI|VII|VIII|IX|III|II|I|\d+)",
-        blob,
-        flags=re.IGNORECASE,
-    )
-    roman = {"I": "I", "II": "II", "III": "III", "IV": "IV", "V": "V", "VI": "VI"}
     out: list[str] = []
-    for match in found:
-        key = match.upper()
-        label = f"Canto {roman.get(key, key)}"
+    for match in _CANTO_TOKEN.findall(blob):
+        token = match.upper()
+        if token.isdigit():
+            token = _INT_TO_ROMAN.get(int(token), token)
+        label = f"Canto {token}"
         if label not in out:
             out.append(label)
     return out
