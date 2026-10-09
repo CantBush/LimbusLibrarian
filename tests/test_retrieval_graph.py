@@ -12,6 +12,7 @@ from limbus_librarian.graph import (
 )
 from limbus_librarian.graph.heuristics import analyze_query
 from limbus_librarian.graph.store import GraphStore
+from limbus_librarian.index.bm25 import with_canto_terms
 from limbus_librarian.ingest.pipeline import load_documents
 from limbus_librarian.models import SourceDocument
 from limbus_librarian.runtime import bootstrap_from_fixtures
@@ -302,3 +303,26 @@ def test_rebuild_deduplicates_case_variant_edges(tmp_path: Path):
         ).fetchall()
     assert again == edges
 
+
+def test_bm25_distinguishes_single_letter_canto_numerals(tmp_path: Path, monkeypatch):
+    assert with_canto_terms("Canto X and canto 4, not canto in") == (
+        "Canto X canto10 and canto 4 canto4, not canto in"
+    )
+    root = Path(__file__).resolve().parents[1]
+    settings = Settings(data_dir=tmp_path, embedding_dims=32, openai_api_key="")
+    monkeypatch.setattr(
+        type(settings),
+        "fixtures_dir",
+        property(lambda self: root / "data" / "fixtures"),
+    )
+    searcher = bootstrap_from_fixtures(settings)
+    cfg = load_named_config(root / "configs", "bm25_only")
+
+    canto_x = searcher.search("What happens in Canto X?", cfg)
+    assert canto_x[0].title == "Canto X"
+    canto_iv = searcher.search("What happened during Canto IV?", cfg)
+    assert canto_iv[0].title in {"Canto IV", "Dongrang"}
+    assert GraphStore(settings.catalog_path).match_entities("Who is Meursault in Canto X?") == [
+        ("Meursault", "sinner"),
+        ("Canto X", "story_transcript"),
+    ]
