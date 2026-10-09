@@ -71,6 +71,24 @@ python -m pytest -q
 CI runs the same fixture pytest suite on Python 3.12 (`pip install -e ".[dev]"`);
 it does not contact wiki.gg, OpenAI, or install the optional `[rerank]` extra.
 
+### Fixture corpus coverage
+
+The fixtures under `data/fixtures/` are short original summaries that link back to
+their wiki pages. They cover two story arcs:
+
+- **Canto IV** (Yi Sang, Dongrang, the League of Nine, the Mirror, Identity).
+- **Canto X: The Gaze Bearing**, Meursault's chapter for Season 8: PUNCTUM (released
+  in three weekly parts from September 17, 2026). It comes with the setup chapter
+  Intervallo VII: Mnestic Experience, Meursault, Jeanne, and the Grand Magasin Sisyphe.
+
+A `Theater` page lists every Canto through Canto X with its focus Sinner and season,
+plus the Intervallos between Canto IV and Canto X. Cantos V–IX and those Intervallos
+have no detailed fixture pages; that detail comes from `ingest-wiki`. When a new
+chapter ships, add its fixtures with the next free `page_id`, add `v1` gold questions
+for them, then run `ingest-fixtures` and restart `serve` or `POST /v1/reload`. The
+server only bootstraps from fixtures when `data/processed/chunks.jsonl` is missing, so
+an existing local index does not pick up new fixtures until it is re-ingested.
+
 ## Lore-first wiki ingest
 
 The optional live ingest uses MediaWiki's Action API and configured lore category
