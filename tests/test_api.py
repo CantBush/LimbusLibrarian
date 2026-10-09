@@ -45,9 +45,11 @@ def test_api_ask_health_configs(tmp_path: Path, monkeypatch):
         assert catalog.status_code == 200
         assert {item["title"] for item in catalog.json()["items"]} == {
             "Dongrang",
+            "Jeanne",
+            "Meursault",
             "Yi Sang",
         }
-        assert catalog.json()["total"] == 2
+        assert catalog.json()["total"] == 4
         searched = client.get("/v1/documents", params={"q": "mirror"})
         assert searched.status_code == 200
         assert {item["title"] for item in searched.json()["items"]} >= {
@@ -55,8 +57,10 @@ def test_api_ask_health_configs(tmp_path: Path, monkeypatch):
             "The Mirror",
         }
         assert client.get(
-            "/v1/documents", params={"canto": "Canto V"}
+            "/v1/documents", params={"canto": "Canto XI"}
         ).json()["total"] == 0
+        canto_x = client.get("/v1/documents", params={"canto": "Canto X"}).json()
+        assert {"Canto X", "Meursault"} <= {item["title"] for item in canto_x["items"]}
         document = client.get(
             f"/v1/documents/{catalog.json()['items'][0]['doc_id']}"
         )
